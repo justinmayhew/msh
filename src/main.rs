@@ -6,6 +6,8 @@ extern crate failure;
 extern crate log;
 extern crate nix;
 
+mod parser;
+
 use std::env;
 use std::ffi::CString;
 use std::io::{self, Write};
@@ -47,7 +49,7 @@ fn repl() -> Result<()> {
             break;
         }
 
-        let argv = parse_line(&line);
+        let argv = parser::parse_line(&line);
         if argv.is_empty() {
             continue;
         }
@@ -64,10 +66,6 @@ fn prompt() -> Result<()> {
     lock.write_all(b"$ ")?;
     lock.flush()?;
     Ok(())
-}
-
-fn parse_line(line: &str) -> Vec<String> {
-    line.split_whitespace().map(String::from).collect()
 }
 
 fn execute(argv: Vec<String>) -> Result<()> {
