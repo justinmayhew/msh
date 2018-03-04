@@ -40,30 +40,80 @@ fn main() {
     process::exit(code);
 }
 
+struct DirStatus {
+    path: String,
+    last: Option<String>,
+}
+
+impl DirStatus {
+    fn new() -> Self {
+        let pwd = env::current_dir().unwrap();
+        Self {
+            path: pwd.to_str().unwrap().into(),
+            last: None,
+        }
+    }
+
+    fn current(&self) -> &str {
+        &self.path
+    }
+
+    fn cd(self, mut argv: Vec<String>) -> Result<Self> {
+        assert!(argv.len() <= 1);
+
+        let mut path = argv.pop()
+            .unwrap_or_else(|| env::var("HOME").expect("HOME required"));
+
+        if path == "-" {
+            path = match self.last {
+                Some(path) => path,
+                None => self.path.clone(),
+            };
+        }
+
+        env::set_current_dir(&path)?;
+
+        Ok(DirStatus {
+            path,
+            last: Some(self.path),
+        })
+    }
+}
+
 fn repl() -> Result<()> {
+    let mut dir = DirStatus::new();
+
     loop {
-        prompt()?;
+        prompt(dir.current())?;
+
         let mut line = String::new();
-        let n = io::stdin().read_line(&mut line)?;
-        if n == 0 {
+        if io::stdin().read_line(&mut line)? == 0 {
             break;
         }
 
-        let argv = parser::parse_line(&line);
+        let mut argv = parser::parse_line(&line);
         if argv.is_empty() {
             continue;
         }
 
+        let cmd = argv.remove(0);
+
+        if cmd == "cd" {
+            dir = dir.cd(argv)?;
+            continue;
+        }
+
+        argv.insert(0, cmd);
         execute(argv)?;
     }
 
     Ok(())
 }
 
-fn prompt() -> Result<()> {
+fn prompt(cwd: &str) -> Result<()> {
     let stdout = io::stdout();
     let mut lock = stdout.lock();
-    lock.write_all(b"$ ")?;
+    write!(lock, "{} $ ", cwd)?;
     lock.flush()?;
     Ok(())
 }
