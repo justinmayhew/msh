@@ -8,7 +8,7 @@ extern crate log;
 extern crate nix;
 
 mod parser;
-mod readline;
+mod history;
 
 use std::borrow::Cow;
 use std::env;
@@ -21,6 +21,8 @@ use nix::Error::Sys;
 use nix::errno::Errno;
 use nix::sys::wait::{waitpid, WaitStatus};
 use nix::unistd::{execv, fork, ForkResult};
+
+use history::History;
 
 type Result<T> = result::Result<T, failure::Error>;
 
@@ -102,8 +104,9 @@ fn str_to_pathbuf(s: &str) -> PathBuf {
 
 fn repl() -> Result<()> {
     let mut dir = DirStatus::new();
+    let history = History::new("/tmp/msh_history");
 
-    while let Some(line) = readline::readline(&format!("{} $ ", dir.current())) {
+    while let Some(line) = history.readline(&format!("{} $ ", dir.current())) {
         let mut argv = parser::parse_line(&line);
         if argv.is_empty() {
             continue;
