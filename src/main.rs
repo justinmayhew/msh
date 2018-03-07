@@ -2,15 +2,16 @@
 
 extern crate env_logger;
 extern crate failure;
+extern crate libc;
 #[macro_use]
 extern crate log;
 extern crate nix;
 
 mod parser;
+mod readline;
 
 use std::env;
 use std::ffi::CString;
-use std::io::{self, Write};
 use std::process;
 use std::result;
 
@@ -83,14 +84,7 @@ impl DirStatus {
 fn repl() -> Result<()> {
     let mut dir = DirStatus::new();
 
-    loop {
-        prompt(dir.current())?;
-
-        let mut line = String::new();
-        if io::stdin().read_line(&mut line)? == 0 {
-            break;
-        }
-
+    while let Some(line) = readline::readline(&format!("{} $ ", dir.current())) {
         let mut argv = parser::parse_line(&line);
         if argv.is_empty() {
             continue;
@@ -107,14 +101,6 @@ fn repl() -> Result<()> {
         execute(argv)?;
     }
 
-    Ok(())
-}
-
-fn prompt(cwd: &str) -> Result<()> {
-    let stdout = io::stdout();
-    let mut lock = stdout.lock();
-    write!(lock, "{} $ ", cwd)?;
-    lock.flush()?;
     Ok(())
 }
 
