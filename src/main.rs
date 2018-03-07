@@ -10,8 +10,10 @@ extern crate nix;
 mod parser;
 mod readline;
 
+use std::borrow::Cow;
 use std::env;
 use std::ffi::CString;
+use std::path::PathBuf;
 use std::process;
 use std::result;
 
@@ -42,43 +44,60 @@ fn main() {
 }
 
 struct DirStatus {
-    path: String,
-    last: Option<String>,
+    path: PathBuf,
+    last: Option<PathBuf>,
 }
 
 impl DirStatus {
     fn new() -> Self {
-        let pwd = env::current_dir().unwrap();
         Self {
-            path: pwd.to_str().unwrap().into(),
+            path: env::current_dir().unwrap(),
             last: None,
         }
     }
 
-    fn current(&self) -> &str {
-        &self.path
+    fn current(&self) -> Cow<str> {
+        self.path.to_string_lossy()
     }
 
     fn cd(self, mut argv: Vec<String>) -> Result<Self> {
         assert!(argv.len() <= 1);
 
-        let mut path = argv.pop()
-            .unwrap_or_else(|| env::var("HOME").expect("HOME required"));
-
-        if path == "-" {
-            path = match self.last {
-                Some(path) => path,
-                None => self.path.clone(),
-            };
-        }
+        let path = match argv.pop() {
+            Some(path) => {
+                if path == "-" {
+                    match self.last {
+                        Some(last) => last,
+                        None => self.path.clone(),
+                    }
+                } else {
+                    str_to_pathbuf(&path)
+                }
+            }
+            None => env::home_dir().expect("HOME required"),
+        };
 
         env::set_current_dir(&path)?;
 
+        let absolute = if path.is_relative() {
+            let mut buf = self.path.clone();
+            buf.push(path);
+            buf.canonicalize().expect("error canonicalizing path")
+        } else {
+            path
+        };
+
         Ok(DirStatus {
-            path,
+            path: absolute,
             last: Some(self.path),
         })
     }
+}
+
+fn str_to_pathbuf(s: &str) -> PathBuf {
+    let mut buf = PathBuf::new();
+    buf.push(s);
+    buf
 }
 
 fn repl() -> Result<()> {
