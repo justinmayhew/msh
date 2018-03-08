@@ -1,8 +1,9 @@
+use std::env;
 use std::ffi::{CStr, CString};
 use std::fs::OpenOptions;
 use std::io;
 use std::os::unix::ffi::OsStrExt;
-use std::path::Path;
+use std::path::PathBuf;
 
 use libc::{self, c_char, c_int, c_void};
 
@@ -13,22 +14,26 @@ pub struct History {
 }
 
 impl History {
-    pub fn new(history_path: &Path) -> Result<Self> {
+    pub fn new(history_path: Option<&PathBuf>) -> Result<Self> {
+        let history_path = history_path
+            .map(Into::into)
+            .unwrap_or_else(|| env::home_dir().expect("HOME required").join(".msh_history"));
+
         let path = CString::new(history_path.as_os_str().as_bytes())?;
 
         if let Err(e) = OpenOptions::new()
             .write(true)
             .create_new(true)
-            .open(history_path)
+            .open(&history_path)
         {
             if e.kind() != io::ErrorKind::AlreadyExists {
-                bail!("Error creating history file: {}", history_path.display());
+                bail!("error creating history file {:?}: {}", history_path, e);
             }
         }
 
         unsafe {
             if ffi::read_history(path.as_ptr()) != 0 {
-                bail!("Error loading history: {}", history_path.display());
+                bail!("error loading history file {:?}", history_path);
             }
         }
 
@@ -48,7 +53,7 @@ impl History {
             if !line.is_empty() {
                 ffi::add_history(value);
                 if ffi::append_history(1, self.path.as_ptr()) != 0 {
-                    bail!("Failed writing history");
+                    bail!("failed writing history");
                 }
             }
 

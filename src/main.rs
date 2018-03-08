@@ -39,9 +39,8 @@ macro_rules! display {
 #[derive(Debug, StructOpt)]
 #[structopt(about = "A simple Unix shell.")]
 struct Options {
-    #[structopt(long = "history", default_value = "/tmp/msh_history",
-                help = "Path to the history file", parse(from_os_str))]
-    history: PathBuf,
+    #[structopt(long = "history", help = "Path to the history file", parse(from_os_str))]
+    history: Option<PathBuf>,
 }
 
 fn main() {
@@ -62,7 +61,7 @@ fn main() {
 
 fn repl(options: &Options) -> Result<()> {
     let mut cwd = Cwd::new();
-    let history = History::new(&options.history)?;
+    let history = History::new(options.history.as_ref())?;
 
     while let Some(line) = history.readline(&format!("{} $ ", cwd.current().display()))? {
         let mut argv = parser::parse_line(&line);
