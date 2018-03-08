@@ -22,8 +22,8 @@ use std::result;
 
 use nix::Error::Sys;
 use nix::errno::Errno;
-use nix::sys::wait::{waitpid, WaitStatus};
-use nix::unistd::{execv, fork, ForkResult};
+use nix::sys::wait::{self, WaitStatus};
+use nix::unistd::{self, ForkResult};
 use structopt::StructOpt;
 
 use cwd::Cwd;
@@ -37,7 +37,7 @@ macro_rules! display {
 }
 
 #[derive(Debug, StructOpt)]
-#[structopt(about = "A simple Unix shell.")]
+#[structopt(about = "A simple Unix shell")]
 struct Options {
     #[structopt(long = "history", help = "Path to the history file", parse(from_os_str))]
     history: Option<PathBuf>,
@@ -87,9 +87,9 @@ fn execute(argv: Vec<String>) -> Result<()> {
     assert!(!argv.is_empty());
     debug!("forking to execute {:?}", argv);
 
-    match fork()? {
+    match unistd::fork()? {
         ForkResult::Parent { child } => loop {
-            match waitpid(child, None) {
+            match wait::waitpid(child, None) {
                 Ok(WaitStatus::Exited(_, code)) => {
                     debug!("child exited with {} status code", code);
                     break;
@@ -110,16 +110,15 @@ fn execute(argv: Vec<String>) -> Result<()> {
             let cmd = argv[0].clone();
             let argv: Vec<CString> = argv.into_iter().map(|s| CString::new(s).unwrap()).collect();
 
-            for mut path in PathIterator::new() {
-                path.push('/');
-                path.push_str(&cmd);
-                let path = CString::new(path)?;
-
-                debug!("[child] execv {:?} {:?}", path, argv);
-                match execv(&path, &argv) {
-                    Ok(_) => unreachable!(),
-                    Err(Sys(Errno::ENOENT)) => {}
-                    Err(e) => panic!("[child] {}", e),
+            if cmd.contains('/') {
+                let path = CString::new(cmd.as_bytes())?;
+                execv(&path, &argv);
+            } else {
+                for mut path in PathIterator::new() {
+                    path.push('/');
+                    path.push_str(&cmd);
+                    let path = CString::new(path)?;
+                    execv(&path, &argv);
                 }
             }
 
@@ -129,6 +128,15 @@ fn execute(argv: Vec<String>) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn execv(path: &CString, argv: &[CString]) {
+    debug!("[child] execv {:?} {:?}", path, argv);
+    match unistd::execv(path, argv) {
+        Ok(_) => unreachable!(),
+        Err(Sys(Errno::ENOENT)) => {}
+        Err(e) => panic!("[child] {}", e),
+    }
 }
 
 struct PathIterator {
