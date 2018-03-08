@@ -1,16 +1,19 @@
 #![feature(iter_rfold)]
 
 extern crate env_logger;
+#[macro_use]
 extern crate failure;
 extern crate libc;
 #[macro_use]
 extern crate log;
 extern crate nix;
+#[macro_use]
+extern crate structopt;
 
-mod parser;
+mod cwd;
 mod history;
+mod parser;
 
-use std::borrow::Cow;
 use std::env;
 use std::ffi::CString;
 use std::path::PathBuf;
@@ -21,7 +24,9 @@ use nix::Error::Sys;
 use nix::errno::Errno;
 use nix::sys::wait::{waitpid, WaitStatus};
 use nix::unistd::{execv, fork, ForkResult};
+use structopt::StructOpt;
 
+use cwd::Cwd;
 use history::History;
 
 type Result<T> = result::Result<T, failure::Error>;
@@ -31,10 +36,20 @@ macro_rules! display {
     ($fmt:expr, $($arg:tt)*) => (eprintln!(concat!(env!("CARGO_PKG_NAME"), ": ", $fmt), $($arg)*));
 }
 
+#[derive(Debug, StructOpt)]
+#[structopt(about = "A simple Unix shell.")]
+struct Options {
+    #[structopt(long = "history", default_value = "/tmp/msh_history",
+                help = "Path to the history file", parse(from_os_str))]
+    history: PathBuf,
+}
+
 fn main() {
     env_logger::init();
 
-    let code = match repl() {
+    let options = Options::from_args();
+
+    let code = match repl(&options) {
         Ok(()) => 0,
         Err(e) => {
             display!("{}", e);
@@ -45,68 +60,11 @@ fn main() {
     process::exit(code);
 }
 
-struct DirStatus {
-    path: PathBuf,
-    last: Option<PathBuf>,
-}
+fn repl(options: &Options) -> Result<()> {
+    let mut cwd = Cwd::new();
+    let history = History::new(&options.history)?;
 
-impl DirStatus {
-    fn new() -> Self {
-        Self {
-            path: env::current_dir().unwrap(),
-            last: None,
-        }
-    }
-
-    fn current(&self) -> Cow<str> {
-        self.path.to_string_lossy()
-    }
-
-    fn cd(self, mut argv: Vec<String>) -> Result<Self> {
-        assert!(argv.len() <= 1);
-
-        let path = match argv.pop() {
-            Some(path) => {
-                if path == "-" {
-                    match self.last {
-                        Some(last) => last,
-                        None => self.path.clone(),
-                    }
-                } else {
-                    str_to_pathbuf(&path)
-                }
-            }
-            None => env::home_dir().expect("HOME required"),
-        };
-
-        env::set_current_dir(&path)?;
-
-        let absolute = if path.is_relative() {
-            let mut buf = self.path.clone();
-            buf.push(path);
-            buf.canonicalize().expect("error canonicalizing path")
-        } else {
-            path
-        };
-
-        Ok(DirStatus {
-            path: absolute,
-            last: Some(self.path),
-        })
-    }
-}
-
-fn str_to_pathbuf(s: &str) -> PathBuf {
-    let mut buf = PathBuf::new();
-    buf.push(s);
-    buf
-}
-
-fn repl() -> Result<()> {
-    let mut dir = DirStatus::new();
-    let history = History::new("/tmp/msh_history");
-
-    while let Some(line) = history.readline(&format!("{} $ ", dir.current())) {
+    while let Some(line) = history.readline(&format!("{} $ ", cwd.current().display()))? {
         let mut argv = parser::parse_line(&line);
         if argv.is_empty() {
             continue;
@@ -115,7 +73,7 @@ fn repl() -> Result<()> {
         let cmd = argv.remove(0);
 
         if cmd == "cd" {
-            dir = dir.cd(argv)?;
+            cwd = cwd.cd(argv)?;
             continue;
         }
 
@@ -156,7 +114,7 @@ fn execute(argv: Vec<String>) -> Result<()> {
             for mut path in PathIterator::new() {
                 path.push('/');
                 path.push_str(&cmd);
-                let path = CString::new(path).unwrap();
+                let path = CString::new(path)?;
 
                 debug!("[child] execv {:?} {:?}", path, argv);
                 match execv(&path, &argv) {

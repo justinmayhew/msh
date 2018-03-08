@@ -9,3 +9,4 @@ failure = "0.1"
 libc = "0.2"
 log = "0.4"
 nix = "0.10"
+structopt = { version = "0.2", default-features = false }
