@@ -40,7 +40,7 @@ impl<'input> Parser<'input> {
     }
 
     fn finish_command(&mut self, name: String) -> Result<Command> {
-        let mut command = Command::with_name(name);
+        let mut command = Command::from_name(name);
 
         while let Some(Token::Word(argument)) = self.lexer.next() {
             command.add_argument(argument);
@@ -60,7 +60,7 @@ mod tests {
 
     #[test]
     fn simple() {
-        let cmd = Command::with_name("ls".into());
+        let cmd = Command::from_name("ls".into());
         assert_eq!(parse("ls\n").unwrap(), vec![Statement::Command(cmd)]);
     }
 
@@ -99,7 +99,7 @@ mod tests {
     fn ignores_leading_and_trailing_spaces() {
         assert_eq!(
             parse("  cat   \n").unwrap(),
-            vec![Statement::Command(Command::with_name("cat".into()))],
+            vec![Statement::Command(Command::from_name("cat".into()))],
         );
     }
 }

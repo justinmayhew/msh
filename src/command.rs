@@ -12,7 +12,7 @@ impl Command {
         Self { name, arguments }
     }
 
-    pub fn with_name(name: String) -> Self {
+    pub fn from_name(name: String) -> Self {
         Self {
             name,
             arguments: Vec::new(),
