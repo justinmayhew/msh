@@ -19,23 +19,19 @@ impl<'input> Parser<'input> {
     }
 
     fn parse(mut self) -> Result<Program> {
-        while self.has_remaining_tokens() {
-            let statement = self.parse_statement()?;
-            self.program.push(statement);
+        while let Some(token) = self.lexer.next() {
+            if let Some(statement) = self.parse_statement(token)? {
+                self.program.push(statement);
+            }
         }
 
         Ok(self.program)
     }
 
-    fn has_remaining_tokens(&mut self) -> bool {
-        self.lexer.peek().is_some()
-    }
-
-    fn parse_statement(&mut self) -> Result<Statement> {
-        let token = self.lexer.next().expect("no tokens left");
-
+    fn parse_statement(&mut self, token: Token) -> Result<Option<Statement>> {
         match token {
-            Token::Word(word) => Ok(Statement::Command(self.finish_command(word)?)),
+            Token::Word(word) => Ok(Some(Statement::Command(self.finish_command(word)?))),
+            Token::Delimiter => Ok(None),
         }
     }
 
@@ -100,6 +96,18 @@ mod tests {
         assert_eq!(
             parse("  cat   \n").unwrap(),
             vec![Statement::Command(Command::from_name("cat".into()))],
+        );
+    }
+
+    #[test]
+    fn delimiters() {
+        assert_eq!(
+            parse("echo 1; echo 2\necho 3").unwrap(),
+            vec![
+                Statement::Command(Command::new("echo".into(), vec!["1".into()])),
+                Statement::Command(Command::new("echo".into(), vec!["2".into()])),
+                Statement::Command(Command::new("echo".into(), vec!["3".into()])),
+            ],
         );
     }
 }
