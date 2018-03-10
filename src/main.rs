@@ -36,6 +36,11 @@ macro_rules! display {
     ($fmt:expr, $($arg:tt)*) => (eprintln!(concat!(env!("CARGO_PKG_NAME"), ": ", $fmt), $($arg)*));
 }
 
+fn display_err(e: &failure::Error) {
+    let causes: Vec<String> = e.causes().map(|c| format!("{}", c)).collect();
+    display!("{}", causes.join(": "));
+}
+
 #[derive(Debug, StructOpt)]
 #[structopt(about = "A simple Unix shell")]
 struct Options {
@@ -72,12 +77,13 @@ fn repl(options: &Options) -> Result<()> {
         let cmd = argv.remove(0);
 
         if cmd == "cd" {
-            cwd = cwd.cd(argv)?;
-            continue;
+            if let Err(e) = cwd.cd(argv) {
+                display_err(&e);
+            }
+        } else {
+            argv.insert(0, cmd);
+            execute(argv)?;
         }
-
-        argv.insert(0, cmd);
-        execute(argv)?;
     }
 
     Ok(())
