@@ -141,7 +141,10 @@ fn execv(path: &CString, argv: &[CString]) {
     match unistd::execv(path, argv) {
         Ok(_) => unreachable!(),
         Err(Sys(Errno::ENOENT)) => {}
-        Err(e) => panic!("[child] {}", e),
+        Err(e) => {
+            display!("{}: {}", path.to_string_lossy(), e);
+            process::exit(1);
+        }
     }
 }
 
