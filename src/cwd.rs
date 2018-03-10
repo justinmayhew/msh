@@ -40,15 +40,13 @@ impl Cwd {
         env::set_current_dir(&path)?;
 
         let absolute = if path.is_relative() {
-            let mut buf = self.path.clone();
-            buf.push(path);
-            buf.canonicalize().expect("error canonicalizing path")
+            self.path.join(path)
         } else {
             path
         };
 
         Ok(Self {
-            path: absolute,
+            path: absolute.canonicalize().expect("error canonicalizing path"),
             last: Some(self.path),
         })
     }
