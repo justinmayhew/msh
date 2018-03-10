@@ -10,11 +10,13 @@ extern crate nix;
 #[macro_use]
 extern crate structopt;
 
+mod ast;
+mod command;
 mod cwd;
 mod history;
+mod lexer;
 mod parser;
 
-use std::env;
 use std::ffi::CString;
 use std::path::PathBuf;
 use std::process;
@@ -26,6 +28,8 @@ use nix::sys::wait::{self, WaitStatus};
 use nix::unistd::{self, ForkResult};
 use structopt::StructOpt;
 
+use ast::Statement;
+use command::{Command, Execv};
 use cwd::Cwd;
 use history::History;
 
@@ -69,29 +73,27 @@ fn repl(options: &Options) -> Result<()> {
     let history = History::new(options.history.as_ref())?;
 
     while let Some(line) = history.readline(&format!("{} $ ", cwd.current().display()))? {
-        let mut argv = parser::parse_line(&line);
-        if argv.is_empty() {
-            continue;
-        }
-
-        let cmd = argv.remove(0);
-
-        if cmd == "cd" {
-            if let Err(e) = cwd.cd(argv) {
-                display_err(&e);
+        let mut statements = parser::parse(&line)?;
+        for statement in statements {
+            match statement {
+                Statement::Command(command) => {
+                    if command.name() == "cd" {
+                        if let Err(e) = cwd.cd(command.arguments()) {
+                            display_err(&e);
+                        }
+                    } else {
+                        execute(command)?;
+                    }
+                }
             }
-        } else {
-            argv.insert(0, cmd);
-            execute(argv)?;
         }
     }
 
     Ok(())
 }
 
-fn execute(argv: Vec<String>) -> Result<()> {
-    assert!(!argv.is_empty());
-    debug!("forking to execute {:?}", argv);
+fn execute(command: Command) -> Result<()> {
+    debug!("forking to execute {:?}", command);
 
     match unistd::fork()? {
         ForkResult::Parent { child } => loop {
@@ -113,19 +115,13 @@ fn execute(argv: Vec<String>) -> Result<()> {
             }
         },
         ForkResult::Child => {
-            let cmd = argv[0].clone();
-            let argv: Vec<CString> = argv.into_iter().map(|s| CString::new(s).unwrap()).collect();
+            let cmd = command.name().to_string();
 
-            if cmd.contains('/') {
-                let path = CString::new(cmd.as_bytes())?;
-                execv(&path, &argv);
-            } else {
-                for mut path in PathIterator::new() {
-                    path.push('/');
-                    path.push_str(&cmd);
-                    let path = CString::new(path)?;
+            match command.into_execv() {
+                Execv::Exact(path, argv) => execv(&path, &argv),
+                Execv::Relative(path_iterator, argv) => for path in path_iterator {
                     execv(&path, &argv);
-                }
+                },
             }
 
             display!("command not found: {}", cmd);
@@ -145,31 +141,5 @@ fn execv(path: &CString, argv: &[CString]) {
             display!("{}: {}", path.to_string_lossy(), e);
             process::exit(1);
         }
-    }
-}
-
-struct PathIterator {
-    path: Vec<String>,
-}
-
-impl PathIterator {
-    fn new() -> Self {
-        Self {
-            path: env::var("PATH").expect("PATH required").split(':').rfold(
-                Vec::new(),
-                |mut path, s| {
-                    path.push(s.into());
-                    path
-                },
-            ),
-        }
-    }
-}
-
-impl Iterator for PathIterator {
-    type Item = String;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.path.pop()
     }
 }

@@ -1,102 +1,105 @@
-pub fn parse_line(line: &str) -> Vec<String> {
-    let mut argv = Vec::new();
+use std::iter::Peekable;
 
-    let mut arg = String::new();
-    let mut in_quote = None;
+use Result;
+use ast::{Program, Statement};
+use command::Command;
+use lexer::{Lexer, Token};
 
-    for c in line.chars() {
-        if c == '\'' || c == '"' {
-            match in_quote {
-                Some(quote) => {
-                    if c == quote {
-                        in_quote = None;
-                        continue;
-                    }
-                }
-                None => {
-                    in_quote = Some(c);
-                    continue;
-                }
-            }
+struct Parser<'input> {
+    lexer: Peekable<Lexer<'input>>,
+    program: Program,
+}
+
+impl<'input> Parser<'input> {
+    fn new(src: &'input str) -> Self {
+        Self {
+            lexer: Lexer::new(src).peekable(),
+            program: Vec::new(),
         }
-
-        if c.is_whitespace() && in_quote.is_none() {
-            if !arg.is_empty() {
-                argv.push(arg.clone());
-                arg.clear();
-            }
-            continue;
-        }
-
-        arg.push(c);
     }
 
-    if !arg.is_empty() {
-        argv.push(arg);
+    fn parse(mut self) -> Result<Program> {
+        while self.has_remaining_tokens() {
+            let statement = self.parse_statement()?;
+            self.program.push(statement);
+        }
+
+        Ok(self.program)
     }
 
-    argv
+    fn has_remaining_tokens(&mut self) -> bool {
+        self.lexer.peek().is_some()
+    }
+
+    fn parse_statement(&mut self) -> Result<Statement> {
+        let token = self.lexer.next().expect("no tokens left");
+
+        match token {
+            Token::Word(word) => Ok(Statement::Command(self.finish_command(word)?)),
+        }
+    }
+
+    fn finish_command(&mut self, name: String) -> Result<Command> {
+        let mut command = Command::with_name(name);
+
+        while let Some(Token::Word(argument)) = self.lexer.next() {
+            command.add_argument(argument);
+        }
+
+        Ok(command)
+    }
+}
+
+pub fn parse(input: &str) -> Result<Program> {
+    Parser::new(input).parse()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::parse_line;
+    use super::*;
 
     #[test]
     fn simple() {
-        assert_eq!(parse_line("ls\n"), vec!["ls".to_string()]);
+        let cmd = Command::with_name("ls".into());
+        assert_eq!(parse("ls\n").unwrap(), vec![Statement::Command(cmd)]);
     }
 
     #[test]
     fn empty() {
-        let empty: Vec<String> = Vec::new();
-        assert_eq!(parse_line("\n"), empty);
+        assert_eq!(parse("\n").unwrap(), Vec::new());
     }
 
     #[test]
     fn arguments() {
         assert_eq!(
-            parse_line("cat /etc/hosts /etc/passwd\n"),
+            parse("cat /etc/hosts /etc/passwd\n").unwrap(),
             vec![
-                "cat".to_string(),
-                "/etc/hosts".to_string(),
-                "/etc/passwd".to_string(),
+                Statement::Command(Command::new(
+                    "cat".into(),
+                    vec!["/etc/hosts".into(), "/etc/passwd".into()],
+                )),
             ],
-        );
-    }
-
-    #[test]
-    fn single_quotes() {
-        assert_eq!(
-            parse_line("echo '\"hello\" world'\n"),
-            vec!["echo".to_string(), "\"hello\" world".to_string()],
-        );
-    }
-
-    #[test]
-    fn double_quotes() {
-        assert_eq!(
-            parse_line("echo \"hello 'world'\"\n"),
-            vec!["echo".to_string(), "hello 'world'".to_string()],
         );
     }
 
     #[test]
     fn ignores_consecutive_spaces() {
         assert_eq!(
-            parse_line("/bin/echo 1  2   3 '    4'5\n"),
+            parse("/bin/echo 1  2   3\n").unwrap(),
             vec![
-                "/bin/echo".to_string(),
-                "1".to_string(),
-                "2".to_string(),
-                "3".to_string(),
-                "    45".to_string(),
+                Statement::Command(Command::new(
+                    "/bin/echo".into(),
+                    vec!["1".into(), "2".into(), "3".into()],
+                )),
             ],
         );
     }
 
     #[test]
     fn ignores_leading_and_trailing_spaces() {
-        assert_eq!(parse_line("  cat   \n"), vec!["cat".to_string()]);
+        assert_eq!(
+            parse("  cat   \n").unwrap(),
+            vec![Statement::Command(Command::with_name("cat".into()))],
+        );
     }
 }

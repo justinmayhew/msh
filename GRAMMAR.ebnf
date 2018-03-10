@@ -1,0 +1,9 @@
+Program = { Statement } .
+
+Statement = Command .
+
+Command = CommandName { Argument } .
+CommandName = word .
+Argument = word .
+
+word = /* TBD */ .

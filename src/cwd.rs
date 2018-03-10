@@ -23,15 +23,15 @@ impl Cwd {
         &self.path
     }
 
-    pub fn cd(&mut self, mut argv: Vec<String>) -> Result<()> {
+    pub fn cd(&mut self, argv: &[String]) -> Result<()> {
         assert!(argv.len() <= 1);
 
-        let path = match argv.pop() {
+        let path = match argv.first() {
             Some(path) => {
                 if path == "-" {
                     self.last.as_ref().unwrap_or(&self.path).clone()
                 } else {
-                    str_to_pathbuf(&path)
+                    str_to_pathbuf(path)
                 }
             }
             None => env::home_dir().expect("HOME required"),
