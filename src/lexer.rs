@@ -99,7 +99,13 @@ impl<'input> Iterator for Lexer<'input> {
         }
 
         if buf.is_empty() {
-            None
+            // Ensure we always emit a trailing semi to reduce
+            // edge cases in the parser.
+            if self.last == Some(Token::Semi) {
+                None
+            } else {
+                self.emit(Token::Semi)
+            }
         } else {
             self.emit(Token::Word(buf))
         }
@@ -124,7 +130,7 @@ mod tests {
 
     #[test]
     fn command() {
-        let tokens: Vec<Token> = Lexer::new("cat /etc/hosts /etc/passwd\n").collect();
+        let tokens: Vec<Token> = Lexer::new("cat /etc/hosts /etc/passwd").collect();
         assert_eq!(
             tokens,
             vec![

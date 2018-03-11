@@ -56,6 +56,10 @@ impl<'input> Parser<'input> {
         let mut program = Vec::new();
 
         while let Some(token) = self.next_token() {
+            if token == Token::Semi {
+                continue;
+            }
+
             let stmt = self.parse_stmt(token)?;
             self.assert_token(&Token::Semi)?;
             program.push(stmt);
