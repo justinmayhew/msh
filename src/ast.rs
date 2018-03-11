@@ -11,17 +11,17 @@ pub enum Stmt {
 
 #[derive(Debug, PartialEq)]
 pub struct IfStmt {
-    condition: Command,
-    then_clause: Block,
-    else_clause: Option<Block>,
+    pub test: Command,
+    pub consequent: Block,
+    pub alternate: Option<Block>,
 }
 
 impl IfStmt {
-    pub fn new(condition: Command, then_clause: Block, else_clause: Option<Block>) -> Self {
+    pub fn new(test: Command, consequent: Block, alternate: Option<Block>) -> Self {
         Self {
-            condition,
-            then_clause,
-            else_clause,
+            test,
+            consequent,
+            alternate,
         }
     }
 }

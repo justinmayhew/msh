@@ -6,7 +6,7 @@ use nix::errno::Errno;
 use nix::sys::wait::{self, WaitStatus};
 use nix::unistd::{self, ForkResult};
 
-use ast::{Program, Stmt};
+use ast::{Block, Stmt};
 use command::{Command, Execv};
 use cwd::Cwd;
 use {display_err, Result};
@@ -20,10 +20,16 @@ impl Interpreter {
         Self { cwd: Cwd::new() }
     }
 
-    pub fn execute(&mut self, program: Program) -> Result<()> {
-        for statement in program {
-            match statement {
-                Stmt::If(_) => unimplemented!(),
+    pub fn execute(&mut self, block: Block) -> Result<()> {
+        for stmt in block {
+            match stmt {
+                Stmt::If(stmt) => {
+                    if execute(stmt.test)? == 0 {
+                        self.execute(stmt.consequent)?;
+                    } else if let Some(alternate) = stmt.alternate {
+                        self.execute(alternate)?;
+                    }
+                }
                 Stmt::Command(command) => {
                     if command.name() == "cd" {
                         if let Err(e) = self.cwd.cd(command.arguments()) {
@@ -44,7 +50,7 @@ impl Interpreter {
     }
 }
 
-fn execute(command: Command) -> Result<()> {
+fn execute(command: Command) -> Result<i32> {
     debug!("forking to execute {:?}", command);
 
     match unistd::fork()? {
@@ -52,14 +58,13 @@ fn execute(command: Command) -> Result<()> {
             match wait::waitpid(child, None) {
                 Ok(WaitStatus::Exited(_, code)) => {
                     debug!("child exited with {} status code", code);
-                    break;
+                    return Ok(code);
                 }
                 Ok(status) => {
                     debug!("waitpid: {:?}", status);
                 }
                 Err(Sys(Errno::ECHILD)) => {
-                    display!("child process was killed unexpectedly");
-                    break;
+                    unimplemented!("child process was killed unexpectedly");
                 }
                 Err(e) => {
                     panic!("waitpid: {}", e);
@@ -80,8 +85,6 @@ fn execute(command: Command) -> Result<()> {
             process::exit(1);
         }
     }
-
-    Ok(())
 }
 
 fn execv(path: &CString, argv: &[CString]) {
