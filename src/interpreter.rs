@@ -6,7 +6,7 @@ use nix::errno::Errno;
 use nix::sys::wait::{self, WaitStatus};
 use nix::unistd::{self, ForkResult};
 
-use ast::{Program, Statement};
+use ast::{Program, Stmt};
 use command::{Command, Execv};
 use cwd::Cwd;
 use {display_err, Result};
@@ -23,7 +23,8 @@ impl Interpreter {
     pub fn execute(&mut self, program: Program) -> Result<()> {
         for statement in program {
             match statement {
-                Statement::Command(command) => {
+                Stmt::If(_) => unimplemented!(),
+                Stmt::Command(command) => {
                     if command.name() == "cd" {
                         if let Err(e) = self.cwd.cd(command.arguments()) {
                             display_err(&e);

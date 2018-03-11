@@ -1,9 +1,14 @@
-Program = { Statement } .
+Program = StmtList .
 
-Statement = Command .
+Block = "{" StmtList "}" .
+StmtList = { Stmt ";" } .
+
+Stmt = IfStmt | Command .
+
+IfStmt = "if" Command Block [ "else" ( IfStmt | Block ) ] .
 
 Command = CommandName { Argument } .
-CommandName = word .
-Argument = word .
+CommandName = Word .
+Argument = Word .
 
-word = /* TBD */ .
+Word = /* TBD */ .

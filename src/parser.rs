@@ -1,53 +1,150 @@
-use std::iter::Peekable;
-
 use Result;
-use ast::{Program, Statement};
+use ast::{Block, IfStmt, Program, Stmt};
 use command::Command;
 use lexer::{Lexer, Token};
 
+pub fn parse(input: &str) -> Result<Program> {
+    Parser::new(input).parse()
+}
+
 struct Parser<'input> {
-    lexer: Peekable<Lexer<'input>>,
-    program: Program,
+    lexer: Lexer<'input>,
+    peek: Option<Token>,
 }
 
 impl<'input> Parser<'input> {
     fn new(src: &'input str) -> Self {
         Self {
-            lexer: Lexer::new(src).peekable(),
-            program: Vec::new(),
+            lexer: Lexer::new(src),
+            peek: None,
+        }
+    }
+
+    fn next_token(&mut self) -> Option<Token> {
+        self.peek.take().or_else(|| self.lexer.next())
+    }
+
+    fn push_token(&mut self, token: Token) {
+        assert!(self.peek.is_none());
+        self.peek = Some(token);
+    }
+
+    fn match_token(&mut self, token: &Token) -> bool {
+        match self.next_token() {
+            Some(next) => if next == *token {
+                true
+            } else {
+                self.push_token(next);
+                false
+            },
+            None => false,
+        }
+    }
+
+    fn assert_token(&mut self, token: &Token) -> Result<()> {
+        match self.next_token() {
+            Some(next) => if next == *token {
+                Ok(())
+            } else {
+                bail!("expected {:?}, found {:?}", token, next);
+            },
+            None => bail!("expected {:?}, found EOF", token),
         }
     }
 
     fn parse(mut self) -> Result<Program> {
-        while let Some(token) = self.lexer.next() {
-            if let Some(statement) = self.parse_statement(token)? {
-                self.program.push(statement);
+        let mut program = Vec::new();
+
+        while let Some(token) = self.next_token() {
+            let stmt = self.parse_stmt(token)?;
+            self.assert_token(&Token::Semi)?;
+            program.push(stmt);
+        }
+
+        Ok(program)
+    }
+
+    fn parse_block(&mut self) -> Result<Block> {
+        self.assert_token(&Token::LeftBrace)?;
+
+        let mut block = Vec::new();
+        loop {
+            match self.next_token() {
+                Some(Token::RightBrace) => break,
+                Some(token) => {
+                    let stmt = self.parse_stmt(token)?;
+                    self.assert_token(&Token::Semi)?;
+                    block.push(stmt);
+                }
+                None => {
+                    bail!("unexpected EOF parsing block");
+                }
             }
         }
 
-        Ok(self.program)
+        Ok(block)
     }
 
-    fn parse_statement(&mut self, token: Token) -> Result<Option<Statement>> {
-        match token {
-            Token::Word(word) => Ok(Some(Statement::Command(self.finish_command(word)?))),
-            Token::Delimiter => Ok(None),
-        }
+    fn parse_stmt(&mut self, token: Token) -> Result<Stmt> {
+        let word = assert_word(token)?;
+        let stmt = if word == "if" {
+            Stmt::If(self.parse_if_stmt()?)
+        } else {
+            Stmt::Command(self.parse_command(Some(word))?)
+        };
+        Ok(stmt)
     }
 
-    fn finish_command(&mut self, name: String) -> Result<Command> {
+    fn parse_if_stmt(&mut self) -> Result<IfStmt> {
+        let condition = self.parse_command(None)?;
+        let then_clause = self.parse_block()?;
+
+        let else_clause = if self.match_token(&Token::Word("else".into())) {
+            Some(if self.match_token(&Token::Word("if".into())) {
+                vec![Stmt::If(self.parse_if_stmt()?)]
+            } else {
+                self.parse_block()?
+            })
+        } else {
+            None
+        };
+
+        Ok(IfStmt::new(condition, then_clause, else_clause))
+    }
+
+    fn parse_command(&mut self, mut name: Option<String>) -> Result<Command> {
+        let name = match name.take() {
+            Some(name) => name,
+            None => assert_word(self.next_token())?,
+        };
         let mut command = Command::from_name(name);
 
-        while let Some(Token::Word(argument)) = self.lexer.next() {
-            command.add_argument(argument);
+        loop {
+            match self.next_token().unwrap() {
+                Token::Word(argument) => command.add_argument(argument),
+                token => {
+                    self.push_token(token);
+                    break;
+                }
+            }
         }
 
         Ok(command)
     }
 }
 
-pub fn parse(input: &str) -> Result<Program> {
-    Parser::new(input).parse()
+fn assert_word<T>(token: T) -> Result<String>
+where
+    T: Into<Option<Token>>,
+{
+    match token.into() {
+        Some(token) => if let Token::Word(word) = token {
+            Ok(word)
+        } else {
+            bail!("expected word, found {:?}", token)
+        },
+        None => bail!("unexpected EOF in word position"),
+    }
 }
 
 #[cfg(test)]
@@ -56,8 +153,10 @@ mod tests {
 
     #[test]
     fn simple() {
-        let cmd = Command::from_name("ls".into());
-        assert_eq!(parse("ls\n").unwrap(), vec![Statement::Command(cmd)]);
+        assert_eq!(
+            parse("ls\n").unwrap(),
+            vec![Stmt::Command(Command::from_name("ls".into()))],
+        );
     }
 
     #[test]
@@ -70,7 +169,7 @@ mod tests {
         assert_eq!(
             parse("cat /etc/hosts /etc/passwd\n").unwrap(),
             vec![
-                Statement::Command(Command::new(
+                Stmt::Command(Command::new(
                     "cat".into(),
                     vec!["/etc/hosts".into(), "/etc/passwd".into()],
                 )),
@@ -83,7 +182,7 @@ mod tests {
         assert_eq!(
             parse("/bin/echo 1  2   3\n").unwrap(),
             vec![
-                Statement::Command(Command::new(
+                Stmt::Command(Command::new(
                     "/bin/echo".into(),
                     vec!["1".into(), "2".into(), "3".into()],
                 )),
@@ -95,18 +194,77 @@ mod tests {
     fn ignores_leading_and_trailing_spaces() {
         assert_eq!(
             parse("  cat   \n").unwrap(),
-            vec![Statement::Command(Command::from_name("cat".into()))],
+            vec![Stmt::Command(Command::from_name("cat".into()))],
         );
     }
 
     #[test]
-    fn delimiters() {
+    fn semicolon_and_lf_ends_stmt() {
         assert_eq!(
-            parse("echo 1; echo 2\necho 3").unwrap(),
+            parse("echo 1; echo 2\necho 3\n").unwrap(),
             vec![
-                Statement::Command(Command::new("echo".into(), vec!["1".into()])),
-                Statement::Command(Command::new("echo".into(), vec!["2".into()])),
-                Statement::Command(Command::new("echo".into(), vec!["3".into()])),
+                Stmt::Command(Command::new("echo".into(), vec!["1".into()])),
+                Stmt::Command(Command::new("echo".into(), vec!["2".into()])),
+                Stmt::Command(Command::new("echo".into(), vec!["3".into()])),
+            ],
+        );
+    }
+
+    #[test]
+    fn if_stmt() {
+        assert_eq!(
+            parse("if true { echo truthy }\n").unwrap(),
+            vec![
+                Stmt::If(IfStmt::new(
+                    Command::from_name("true".into()),
+                    vec![
+                        Stmt::Command(Command::new("echo".into(), vec!["truthy".into()])),
+                    ],
+                    None,
+                )),
+            ],
+        );
+    }
+
+    #[test]
+    fn multiline_nested_if_else_stmt() {
+        let src = r#"
+if /bin/a {
+  echo a
+} else if /bin/b {
+  echo b
+  echo 2
+  if true {
+    exit
+  }
+} else {
+  echo c
+}
+"#;
+        assert_eq!(
+            parse(src).unwrap(),
+            vec![
+                Stmt::If(IfStmt::new(
+                    Command::from_name("/bin/a".into()),
+                    vec![Stmt::Command(Command::new("echo".into(), vec!["a".into()]))],
+                    Some(vec![
+                        Stmt::If(IfStmt::new(
+                            Command::from_name("/bin/b".into()),
+                            vec![
+                                Stmt::Command(Command::new("echo".into(), vec!["b".into()])),
+                                Stmt::Command(Command::new("echo".into(), vec!["2".into()])),
+                                Stmt::If(IfStmt::new(
+                                    Command::from_name("true".into()),
+                                    vec![Stmt::Command(Command::from_name("exit".into()))],
+                                    None,
+                                )),
+                            ],
+                            Some(vec![
+                                Stmt::Command(Command::new("echo".into(), vec!["c".into()])),
+                            ]),
+                        )),
+                    ]),
+                )),
             ],
         );
     }

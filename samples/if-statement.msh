@@ -1,0 +1,5 @@
+if true {
+  echo Truthy
+} else {
+  echo Falsey
+}
