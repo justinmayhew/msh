@@ -1,7 +1,7 @@
 use std::env;
 use std::ffi::CString;
 
-#[derive(PartialEq, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Command {
     name: String,
     arguments: Vec<String>,

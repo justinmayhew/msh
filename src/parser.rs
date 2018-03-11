@@ -1,5 +1,5 @@
 use Result;
-use ast::{Block, IfStmt, Program, Stmt};
+use ast::{Block, IfStmt, Program, Stmt, WhileStmt};
 use command::Command;
 use lexer::{Lexer, Token};
 
@@ -93,6 +93,8 @@ impl<'input> Parser<'input> {
         let word = assert_word(token)?;
         let stmt = if word == "if" {
             Stmt::If(self.parse_if_stmt()?)
+        } else if word == "while" {
+            Stmt::While(self.parse_while_stmt()?)
         } else {
             Stmt::Command(self.parse_command(Some(word))?)
         };
@@ -100,10 +102,10 @@ impl<'input> Parser<'input> {
     }
 
     fn parse_if_stmt(&mut self) -> Result<IfStmt> {
-        let condition = self.parse_command(None)?;
-        let then_clause = self.parse_block()?;
+        let test = self.parse_command(None)?;
+        let consequent = self.parse_block()?;
 
-        let else_clause = if self.match_token(&Token::Word("else".into())) {
+        let alternate = if self.match_token(&Token::Word("else".into())) {
             Some(if self.match_token(&Token::Word("if".into())) {
                 vec![Stmt::If(self.parse_if_stmt()?)]
             } else {
@@ -113,7 +115,13 @@ impl<'input> Parser<'input> {
             None
         };
 
-        Ok(IfStmt::new(condition, then_clause, else_clause))
+        Ok(IfStmt::new(test, consequent, alternate))
+    }
+
+    fn parse_while_stmt(&mut self) -> Result<WhileStmt> {
+        let test = self.parse_command(None)?;
+        let body = self.parse_block()?;
+        Ok(WhileStmt::new(test, body))
     }
 
     fn parse_command(&mut self, mut name: Option<String>) -> Result<Command> {

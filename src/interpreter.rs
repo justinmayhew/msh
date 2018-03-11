@@ -6,7 +6,7 @@ use nix::errno::Errno;
 use nix::sys::wait::{self, WaitStatus};
 use nix::unistd::{self, ForkResult};
 
-use ast::{Block, Stmt};
+use ast::Stmt;
 use command::{Command, Execv};
 use cwd::Cwd;
 use {display_err, Result};
@@ -20,17 +20,20 @@ impl Interpreter {
         Self { cwd: Cwd::new() }
     }
 
-    pub fn execute(&mut self, block: Block) -> Result<()> {
+    pub fn execute(&mut self, block: &[Stmt]) -> Result<()> {
         for stmt in block {
-            match stmt {
-                Stmt::If(stmt) => {
-                    if execute(stmt.test)? == 0 {
-                        self.execute(stmt.consequent)?;
-                    } else if let Some(alternate) = stmt.alternate {
+            match *stmt {
+                Stmt::If(ref stmt) => {
+                    if execute(&stmt.test)? == 0 {
+                        self.execute(&stmt.consequent)?;
+                    } else if let Some(ref alternate) = stmt.alternate {
                         self.execute(alternate)?;
                     }
                 }
-                Stmt::Command(command) => {
+                Stmt::While(ref stmt) => while execute(&stmt.test)? == 0 {
+                    self.execute(&stmt.body)?;
+                },
+                Stmt::Command(ref command) => {
                     if command.name() == "cd" {
                         if let Err(e) = self.cwd.cd(command.arguments()) {
                             display_err(&e);
@@ -50,7 +53,7 @@ impl Interpreter {
     }
 }
 
-fn execute(command: Command) -> Result<i32> {
+fn execute(command: &Command) -> Result<i32> {
     debug!("forking to execute {:?}", command);
 
     match unistd::fork()? {
@@ -74,7 +77,7 @@ fn execute(command: Command) -> Result<i32> {
         ForkResult::Child => {
             let cmd = command.name().to_string();
 
-            match command.into_execv() {
+            match command.clone().into_execv() {
                 Execv::Exact(path, argv) => execv(&path, &argv),
                 Execv::Relative(path_iterator, argv) => for path in path_iterator {
                     execv(&path, &argv);

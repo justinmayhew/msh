@@ -6,6 +6,7 @@ pub type Block = Vec<Stmt>;
 #[derive(Debug, PartialEq)]
 pub enum Stmt {
     If(IfStmt),
+    While(WhileStmt),
     Command(Command),
 }
 
@@ -23,5 +24,17 @@ impl IfStmt {
             consequent,
             alternate,
         }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub struct WhileStmt {
+    pub test: Command,
+    pub body: Block,
+}
+
+impl WhileStmt {
+    pub fn new(test: Command, body: Block) -> Self {
+        Self { test, body }
     }
 }
