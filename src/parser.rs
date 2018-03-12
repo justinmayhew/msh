@@ -1,7 +1,7 @@
 use Result;
 use ast::{Block, IfStmt, Program, Stmt, WhileStmt};
 use command::Command;
-use lexer::{Lexer, Token};
+use lexer::{Kind, Lexer, Token};
 
 pub fn parse(input: &str) -> Result<Program> {
     Parser::new(input).parse()
@@ -10,6 +10,16 @@ pub fn parse(input: &str) -> Result<Program> {
 struct Parser<'input> {
     lexer: Lexer<'input>,
     peek: Option<Token>,
+}
+
+macro_rules! expected {
+    ($expected:expr, $found:expr) => ({
+        let found = match $found {
+            Some(token) => format!("{} on line {}", token.kind, token.line),
+            None => "EOF".to_string(),
+        };
+        bail!("expected {}, found {}", $expected, found);
+    });
 }
 
 impl<'input> Parser<'input> {
@@ -29,9 +39,9 @@ impl<'input> Parser<'input> {
         self.peek = Some(token);
     }
 
-    fn match_token(&mut self, token: &Token) -> bool {
+    fn match_token(&mut self, expected: &Kind) -> bool {
         match self.next_token() {
-            Some(next) => if next == *token {
+            Some(next) => if next.kind == *expected {
                 true
             } else {
                 self.push_token(next);
@@ -41,14 +51,10 @@ impl<'input> Parser<'input> {
         }
     }
 
-    fn assert_token(&mut self, token: &Token) -> Result<()> {
+    fn assert_token(&mut self, expected: &Kind) -> Result<()> {
         match self.next_token() {
-            Some(next) => if next == *token {
-                Ok(())
-            } else {
-                bail!("expected {:?}, found {:?}", token, next);
-            },
-            None => bail!("expected {:?}, found EOF", token),
+            Some(Token { ref kind, .. }) if kind == expected => Ok(()),
+            token => expected!(expected, token),
         }
     }
 
@@ -56,12 +62,12 @@ impl<'input> Parser<'input> {
         let mut program = Vec::new();
 
         while let Some(token) = self.next_token() {
-            if token == Token::Semi {
+            if token.kind == Kind::Semi {
                 continue;
             }
 
             let stmt = self.parse_stmt(token)?;
-            self.assert_token(&Token::Semi)?;
+            self.assert_token(&Kind::Semi)?;
             program.push(stmt);
         }
 
@@ -69,15 +75,16 @@ impl<'input> Parser<'input> {
     }
 
     fn parse_block(&mut self) -> Result<Block> {
-        self.assert_token(&Token::LeftBrace)?;
+        self.assert_token(&Kind::LeftBrace)?;
 
         let mut block = Vec::new();
         loop {
             match self.next_token() {
-                Some(Token::RightBrace) => break,
+                Some(ref token) if token.kind == Kind::RightBrace => break,
+                Some(ref token) if token.kind == Kind::Semi => {}
                 Some(token) => {
                     let stmt = self.parse_stmt(token)?;
-                    self.assert_token(&Token::Semi)?;
+                    self.assert_token(&Kind::Semi)?;
                     block.push(stmt);
                 }
                 None => {
@@ -90,7 +97,7 @@ impl<'input> Parser<'input> {
     }
 
     fn parse_stmt(&mut self, token: Token) -> Result<Stmt> {
-        let word = assert_word(token)?;
+        let word = assert_word(token, "statement")?;
         let stmt = if word == "if" {
             Stmt::If(self.parse_if_stmt()?)
         } else if word == "while" {
@@ -105,8 +112,8 @@ impl<'input> Parser<'input> {
         let test = self.parse_command(None)?;
         let consequent = self.parse_block()?;
 
-        let alternate = if self.match_token(&Token::Word("else".into())) {
-            Some(if self.match_token(&Token::Word("if".into())) {
+        let alternate = if self.match_token(&Kind::Word("else".into())) {
+            Some(if self.match_token(&Kind::Word("if".into())) {
                 vec![Stmt::If(self.parse_if_stmt()?)]
             } else {
                 self.parse_block()?
@@ -127,17 +134,17 @@ impl<'input> Parser<'input> {
     fn parse_command(&mut self, mut name: Option<String>) -> Result<Command> {
         let name = match name.take() {
             Some(name) => name,
-            None => assert_word(self.next_token())?,
+            None => assert_word(self.next_token(), "command")?,
         };
         let mut command = Command::from_name(name);
 
         loop {
-            match self.next_token().unwrap() {
-                Token::Word(argument) => command.add_argument(argument),
-                token => {
-                    self.push_token(token);
-                    break;
-                }
+            let token = self.next_token().unwrap();
+            if let Kind::Word(argument) = token.kind {
+                command.add_argument(argument);
+            } else {
+                self.push_token(token);
+                break;
             }
         }
 
@@ -145,17 +152,16 @@ impl<'input> Parser<'input> {
     }
 }
 
-fn assert_word<T>(token: T) -> Result<String>
+fn assert_word<T>(token: T, expected: &str) -> Result<String>
 where
     T: Into<Option<Token>>,
 {
     match token.into() {
-        Some(token) => if let Token::Word(word) = token {
-            Ok(word)
-        } else {
-            bail!("expected word, found {:?}", token)
-        },
-        None => bail!("unexpected EOF in word position"),
+        Some(Token {
+            kind: Kind::Word(word),
+            ..
+        }) => Ok(word),
+        token => expected!(expected, token),
     }
 }
 
