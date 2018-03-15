@@ -62,10 +62,6 @@ impl<'input> Parser<'input> {
         let mut program = Vec::new();
 
         while let Some(token) = self.next_token() {
-            if token.kind == Kind::Semi {
-                continue;
-            }
-
             let stmt = self.parse_stmt(token)?;
             self.assert_token(&Kind::Semi)?;
             program.push(stmt);
@@ -81,7 +77,6 @@ impl<'input> Parser<'input> {
         loop {
             match self.next_token() {
                 Some(ref token) if token.kind == Kind::RightBrace => break,
-                Some(ref token) if token.kind == Kind::Semi => {}
                 Some(token) => {
                     let stmt = self.parse_stmt(token)?;
                     self.assert_token(&Kind::Semi)?;

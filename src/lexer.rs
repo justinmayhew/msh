@@ -51,6 +51,13 @@ impl<'input> Lexer<'input> {
         }
         line
     }
+
+    fn should_insert_semi(&self) -> bool {
+        match self.last {
+            Some(ref kind) => *kind != Kind::LeftBrace && *kind != Kind::Semi,
+            None => false,
+        }
+    }
 }
 
 impl<'input> Iterator for Lexer<'input> {
@@ -70,7 +77,7 @@ impl<'input> Iterator for Lexer<'input> {
                     return self.emit(Kind::LeftBrace, Some(line));
                 }
                 if c == '}' {
-                    let kind = if self.last != Some(Kind::Semi) {
+                    let kind = if self.should_insert_semi() {
                         self.next = Some(Kind::RightBrace);
                         Kind::Semi
                     } else {
@@ -109,12 +116,12 @@ impl<'input> Iterator for Lexer<'input> {
         }
 
         if buf.is_empty() {
-            // Ensure we always emit a trailing semi to reduce
-            // edge cases in the parser.
-            if self.last == Some(Kind::Semi) {
-                None
-            } else {
-                self.emit(Kind::Semi, None)
+            match self.last {
+                Some(Kind::Semi) | None => None,
+                Some(_) => {
+                    // Emit a trailing semi to reduce edge cases in the parser.
+                    self.emit(Kind::Semi, None)
+                }
             }
         } else {
             self.emit(Kind::Word(buf), None)
@@ -180,6 +187,12 @@ mod tests {
     }
 
     #[test]
+    fn empty() {
+        let tokens: Vec<Kind> = Lexer::new("\n").map(|t| t.kind).collect();
+        assert_eq!(tokens, Vec::new());
+    }
+
+    #[test]
     fn if_stmt() {
         let tokens: Vec<Kind> = Lexer::new("if true { echo truthy }\n")
             .map(|t| t.kind)
@@ -208,7 +221,6 @@ mod tests {
                 Kind::Word("if".into()),
                 Kind::Word("false".into()),
                 Kind::LeftBrace,
-                Kind::Semi,
                 Kind::RightBrace,
                 Kind::Semi,
             ],
