@@ -20,6 +20,7 @@ mod history;
 mod interpreter;
 mod lexer;
 mod parser;
+mod status;
 
 use std::fs::File;
 use std::io;

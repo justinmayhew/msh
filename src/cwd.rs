@@ -2,9 +2,7 @@ use std::env;
 use std::mem;
 use std::path::{Path, PathBuf};
 
-use failure::ResultExt;
-
-use Result;
+use status::Status;
 
 pub struct Cwd {
     path: PathBuf,
@@ -23,8 +21,11 @@ impl Cwd {
         &self.path
     }
 
-    pub fn cd(&mut self, argv: &[String]) -> Result<()> {
-        assert!(argv.len() <= 1);
+    pub fn cd(&mut self, argv: &[String]) -> Status {
+        if argv.len() > 1 {
+            display!("cd: too many arguments");
+            return Status::Failure;
+        }
 
         let path = match argv.first() {
             Some(path) => {
@@ -37,7 +38,10 @@ impl Cwd {
             None => env::home_dir().expect("HOME required"),
         };
 
-        env::set_current_dir(&path).with_context(|_| path.display().to_string())?;
+        if let Err(e) = env::set_current_dir(&path) {
+            display!("cd: can't cd to {}: {}", path.display(), e);
+            return Status::Failure;
+        }
 
         let absolute = if path.is_relative() {
             self.path.join(path)
@@ -50,7 +54,7 @@ impl Cwd {
             absolute.canonicalize().expect("error canonicalizing path"),
         ));
 
-        Ok(())
+        Status::Success
     }
 }
 

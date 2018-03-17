@@ -8,10 +8,11 @@ use nix::errno::Errno;
 use nix::sys::wait::{self, WaitStatus};
 use nix::unistd::{self, ForkResult};
 
+use Result;
 use ast::Stmt;
 use command::{Command, Execv};
 use cwd::Cwd;
-use {display_err, Result};
+use status::Status;
 
 pub struct Interpreter {
     cwd: Cwd,
@@ -30,23 +31,17 @@ impl Interpreter {
         for stmt in block {
             match *stmt {
                 Stmt::If(ref stmt) => {
-                    if self.execute_command(&stmt.test)? == 0 {
+                    if self.execute_command(&stmt.test)?.is_success() {
                         self.execute(&stmt.consequent)?;
                     } else if let Some(ref alternate) = stmt.alternate {
                         self.execute(alternate)?;
                     }
                 }
-                Stmt::While(ref stmt) => while self.execute_command(&stmt.test)? == 0 {
+                Stmt::While(ref stmt) => while self.execute_command(&stmt.test)?.is_success() {
                     self.execute(&stmt.body)?;
                 },
                 Stmt::Command(ref command) => {
-                    if command.name() == "cd" {
-                        if let Err(e) = self.cwd.cd(command.arguments()) {
-                            display_err(&e);
-                        }
-                    } else {
-                        self.execute_command(command)?;
-                    }
+                    self.execute_command(command)?;
                 }
             }
         }
@@ -58,12 +53,16 @@ impl Interpreter {
         self.cwd.current().display().to_string()
     }
 
-    fn execute_command(&self, command: &Command) -> Result<i32> {
-        execute(command, &self.path)
+    fn execute_command(&mut self, command: &Command) -> Result<Status> {
+        if command.name() == "cd" {
+            Ok(self.cwd.cd(command.arguments()))
+        } else {
+            execute(command, &self.path)
+        }
     }
 }
 
-fn execute(command: &Command, path: &OsStr) -> Result<i32> {
+fn execute(command: &Command, path: &OsStr) -> Result<Status> {
     debug!("forking to execute {:?}", command);
 
     match unistd::fork()? {
@@ -71,7 +70,7 @@ fn execute(command: &Command, path: &OsStr) -> Result<i32> {
             match wait::waitpid(child, None) {
                 Ok(WaitStatus::Exited(_, code)) => {
                     debug!("child exited with {} status code", code);
-                    return Ok(code);
+                    return Ok(code.into());
                 }
                 Ok(status) => {
                     debug!("waitpid: {:?}", status);
