@@ -60,7 +60,7 @@ impl Interpreter {
         let command = command.expand(&self.home);
 
         if command.name().as_bytes() == b"cd" {
-            Ok(self.cwd.cd(command.arguments()))
+            Ok(self.cwd.cd(&self.home, command.arguments()))
         } else {
             execute(&command, &self.path)
         }

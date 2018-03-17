@@ -22,7 +22,7 @@ impl Cwd {
         &self.path
     }
 
-    pub fn cd(&mut self, argv: &[OsString]) -> Status {
+    pub fn cd(&mut self, home: &Path, argv: &[OsString]) -> Status {
         if argv.len() > 1 {
             display!("cd: too many arguments");
             return Status::Failure;
@@ -36,7 +36,7 @@ impl Cwd {
                     PathBuf::from(path)
                 }
             }
-            None => env::home_dir().expect("HOME required"),
+            None => PathBuf::from(home),
         };
 
         if let Err(e) = env::set_current_dir(&path) {
