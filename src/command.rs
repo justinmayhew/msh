@@ -1,4 +1,3 @@
-use std::env;
 use std::ffi::CString;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -34,7 +33,7 @@ impl Command {
         if self.name.contains('/') {
             Execv::Exact(CString::new(self.name).unwrap(), arguments)
         } else {
-            Execv::Relative(PathIterator::new(self.name), arguments)
+            Execv::Relative(self.name, arguments)
         }
     }
 
@@ -49,37 +48,5 @@ impl Command {
 
 pub enum Execv {
     Exact(CString, Vec<CString>),
-    Relative(PathIterator, Vec<CString>),
-}
-
-pub struct PathIterator {
-    name: String,
-    path: Vec<String>,
-}
-
-impl PathIterator {
-    fn new(name: String) -> Self {
-        Self {
-            name,
-            path: env::var("PATH").expect("PATH required").split(':').rfold(
-                Vec::new(),
-                |mut path, s| {
-                    path.push(s.into());
-                    path
-                },
-            ),
-        }
-    }
-}
-
-impl Iterator for PathIterator {
-    type Item = CString;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.path.pop().map(|mut path| {
-            path.push('/');
-            path.push_str(&self.name);
-            CString::new(path).unwrap()
-        })
-    }
+    Relative(String, Vec<CString>),
 }

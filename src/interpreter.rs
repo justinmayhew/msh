@@ -1,4 +1,6 @@
-use std::ffi::CString;
+use std::env;
+use std::ffi::{CString, OsStr, OsString};
+use std::os::unix::ffi::OsStringExt;
 use std::process;
 
 use nix::Error::Sys;
@@ -13,24 +15,28 @@ use {display_err, Result};
 
 pub struct Interpreter {
     cwd: Cwd,
+    path: OsString,
 }
 
 impl Interpreter {
     pub fn new() -> Self {
-        Self { cwd: Cwd::new() }
+        Self {
+            cwd: Cwd::new(),
+            path: env::var_os("PATH").unwrap_or_default(),
+        }
     }
 
     pub fn execute(&mut self, block: &[Stmt]) -> Result<()> {
         for stmt in block {
             match *stmt {
                 Stmt::If(ref stmt) => {
-                    if execute(&stmt.test)? == 0 {
+                    if self.execute_command(&stmt.test)? == 0 {
                         self.execute(&stmt.consequent)?;
                     } else if let Some(ref alternate) = stmt.alternate {
                         self.execute(alternate)?;
                     }
                 }
-                Stmt::While(ref stmt) => while execute(&stmt.test)? == 0 {
+                Stmt::While(ref stmt) => while self.execute_command(&stmt.test)? == 0 {
                     self.execute(&stmt.body)?;
                 },
                 Stmt::Command(ref command) => {
@@ -39,7 +45,7 @@ impl Interpreter {
                             display_err(&e);
                         }
                     } else {
-                        execute(command)?;
+                        self.execute_command(command)?;
                     }
                 }
             }
@@ -51,9 +57,13 @@ impl Interpreter {
     pub fn cwd(&self) -> String {
         self.cwd.current().display().to_string()
     }
+
+    fn execute_command(&self, command: &Command) -> Result<i32> {
+        execute(command, &self.path)
+    }
 }
 
-fn execute(command: &Command) -> Result<i32> {
+fn execute(command: &Command, path: &OsStr) -> Result<i32> {
     debug!("forking to execute {:?}", command);
 
     match unistd::fork()? {
@@ -79,7 +89,9 @@ fn execute(command: &Command) -> Result<i32> {
 
             match command.clone().into_execv() {
                 Execv::Exact(path, argv) => execv(&path, &argv),
-                Execv::Relative(path_iterator, argv) => for path in path_iterator {
+                Execv::Relative(name, argv) => for mut path in env::split_paths(path) {
+                    path.push(&name);
+                    let path = CString::new(path.into_os_string().into_vec()).unwrap();
                     execv(&path, &argv);
                 },
             }

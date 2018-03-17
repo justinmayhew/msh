@@ -1,5 +1,3 @@
-#![feature(iter_rfold)]
-
 extern crate env_logger;
 #[macro_use]
 extern crate failure;
