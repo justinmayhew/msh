@@ -80,8 +80,8 @@ fn run(options: Options) -> Result<()> {
 }
 
 fn execute<R: io::Read>(mut reader: R) -> Result<()> {
-    let mut src = String::new();
-    reader.read_to_string(&mut src)?;
+    let mut src = Vec::new();
+    reader.read_to_end(&mut src)?;
 
     let program = parser::parse(&src)?;
     Interpreter::new().execute(&program)

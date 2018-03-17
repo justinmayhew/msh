@@ -84,8 +84,6 @@ fn execute(command: &Command, path: &OsStr) -> Result<Status> {
             }
         },
         ForkResult::Child => {
-            let cmd = command.name().to_string();
-
             match command.clone().into_execv() {
                 Execv::Exact(path, argv) => execv(&path, &argv),
                 Execv::Relative(name, argv) => for mut path in env::split_paths(path) {
@@ -95,7 +93,7 @@ fn execute(command: &Command, path: &OsStr) -> Result<Status> {
                 },
             }
 
-            display!("command not found: {}", cmd);
+            display!("command not found: {}", command.name().to_string_lossy());
             process::exit(1);
         }
     }

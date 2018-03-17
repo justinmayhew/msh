@@ -1,9 +1,12 @@
+use std::ffi::OsString;
+use std::os::unix::ffi::OsStrExt;
+
 use Result;
 use ast::{Block, IfStmt, Program, Stmt, WhileStmt};
 use command::Command;
 use lexer::{Kind, Lexer, Token};
 
-pub fn parse(input: &str) -> Result<Program> {
+pub fn parse(input: &[u8]) -> Result<Program> {
     Parser::new(input).parse()
 }
 
@@ -23,7 +26,7 @@ macro_rules! expected {
 }
 
 impl<'input> Parser<'input> {
-    fn new(src: &'input str) -> Self {
+    fn new(src: &'input [u8]) -> Self {
         Self {
             lexer: Lexer::new(src),
             peek: None,
@@ -93,9 +96,9 @@ impl<'input> Parser<'input> {
 
     fn parse_stmt(&mut self, token: Token) -> Result<Stmt> {
         let word = assert_word(token, "statement")?;
-        let stmt = if word == "if" {
+        let stmt = if word.as_bytes() == b"if" {
             Stmt::If(self.parse_if_stmt()?)
-        } else if word == "while" {
+        } else if word.as_bytes() == b"while" {
             Stmt::While(self.parse_while_stmt()?)
         } else {
             Stmt::Command(self.parse_command(Some(word))?)
@@ -126,7 +129,7 @@ impl<'input> Parser<'input> {
         Ok(WhileStmt::new(test, body))
     }
 
-    fn parse_command(&mut self, mut name: Option<String>) -> Result<Command> {
+    fn parse_command(&mut self, mut name: Option<OsString>) -> Result<Command> {
         let name = match name.take() {
             Some(name) => name,
             None => assert_word(self.next_token(), "command")?,
@@ -147,7 +150,7 @@ impl<'input> Parser<'input> {
     }
 }
 
-fn assert_word<T>(token: T, expected: &str) -> Result<String>
+fn assert_word<T>(token: T, expected: &str) -> Result<OsString>
 where
     T: Into<Option<Token>>,
 {
@@ -167,20 +170,20 @@ mod tests {
     #[test]
     fn simple() {
         assert_eq!(
-            parse("ls\n").unwrap(),
+            parse(b"ls\n").unwrap(),
             vec![Stmt::Command(Command::from_name("ls".into()))],
         );
     }
 
     #[test]
     fn empty() {
-        assert_eq!(parse("\n").unwrap(), Vec::new());
+        assert_eq!(parse(b"\n").unwrap(), Vec::new());
     }
 
     #[test]
     fn arguments() {
         assert_eq!(
-            parse("cat /etc/hosts /etc/passwd\n").unwrap(),
+            parse(b"cat /etc/hosts /etc/passwd\n").unwrap(),
             vec![
                 Stmt::Command(Command::new(
                     "cat".into(),
@@ -193,7 +196,7 @@ mod tests {
     #[test]
     fn ignores_consecutive_spaces() {
         assert_eq!(
-            parse("/bin/echo 1  2   3\n").unwrap(),
+            parse(b"/bin/echo 1  2   3\n").unwrap(),
             vec![
                 Stmt::Command(Command::new(
                     "/bin/echo".into(),
@@ -206,7 +209,7 @@ mod tests {
     #[test]
     fn ignores_leading_and_trailing_spaces() {
         assert_eq!(
-            parse("  cat   \n").unwrap(),
+            parse(b"  cat   \n").unwrap(),
             vec![Stmt::Command(Command::from_name("cat".into()))],
         );
     }
@@ -214,7 +217,7 @@ mod tests {
     #[test]
     fn semicolon_and_lf_ends_stmt() {
         assert_eq!(
-            parse("echo 1; echo 2\necho 3\n").unwrap(),
+            parse(b"echo 1; echo 2\necho 3\n").unwrap(),
             vec![
                 Stmt::Command(Command::new("echo".into(), vec!["1".into()])),
                 Stmt::Command(Command::new("echo".into(), vec!["2".into()])),
@@ -226,7 +229,7 @@ mod tests {
     #[test]
     fn if_stmt() {
         assert_eq!(
-            parse("if true { echo truthy }\n").unwrap(),
+            parse(b"if true { echo truthy }\n").unwrap(),
             vec![
                 Stmt::If(IfStmt::new(
                     Command::from_name("true".into()),
@@ -241,7 +244,7 @@ mod tests {
 
     #[test]
     fn multiline_nested_if_else_stmt() {
-        let src = r#"
+        let src = br#"
 if /bin/a {
   echo a
 } else if /bin/b {

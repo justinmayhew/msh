@@ -1,18 +1,20 @@
+use std::ffi::OsString;
 use std::fmt;
-use std::str::Chars;
+use std::os::unix::ffi::OsStringExt;
+use std::slice::Iter;
 
 pub struct Lexer<'input> {
-    src: Chars<'input>,
+    src: Iter<'input, u8>,
     line: usize,
-    peek: Option<char>,
+    peek: Option<u8>,
     next: Option<Kind>,
     last: Option<Kind>,
 }
 
 impl<'input> Lexer<'input> {
-    pub fn new(src: &'input str) -> Self {
+    pub fn new(src: &'input [u8]) -> Self {
         Self {
-            src: src.chars(),
+            src: src.iter(),
             line: 1,
             peek: None,
             next: None,
@@ -25,27 +27,27 @@ impl<'input> Lexer<'input> {
         Some(Token::new(kind, line.unwrap_or(self.line)))
     }
 
-    fn next_char(&mut self) -> Option<char> {
-        let next = self.peek.take().or_else(|| self.src.next());
-        if next == Some('\n') {
+    fn next_byte(&mut self) -> Option<u8> {
+        let next = self.peek.take().or_else(|| self.src.next().cloned());
+        if next == Some(b'\n') {
             self.line += 1;
         }
         next
     }
 
-    fn push_char(&mut self, c: char) {
+    fn push_byte(&mut self, byte: u8) {
         assert!(self.peek.is_none());
-        if c == '\n' {
+        if byte == b'\n' {
             self.line -= 1;
         }
-        self.peek = Some(c);
+        self.peek = Some(byte);
     }
 
     fn consume_line_terminators(&mut self) -> usize {
         let line = self.line;
-        while let Some(c) = self.next_char() {
+        while let Some(c) = self.next_byte() {
             if !is_line_terminator(c) {
-                self.push_char(c);
+                self.push_byte(c);
                 break;
             }
         }
@@ -68,15 +70,15 @@ impl<'input> Iterator for Lexer<'input> {
             return self.emit(kind, None);
         }
 
-        let mut buf = String::new();
+        let mut buf = Vec::new();
 
-        while let Some(c) = self.next_char() {
+        while let Some(byte) = self.next_byte() {
             if buf.is_empty() {
-                if c == '{' {
+                if byte == b'{' {
                     let line = self.consume_line_terminators();
                     return self.emit(Kind::LeftBrace, Some(line));
                 }
-                if c == '}' {
+                if byte == b'}' {
                     let kind = if self.should_insert_semi() {
                         self.next = Some(Kind::RightBrace);
                         Kind::Semi
@@ -87,7 +89,7 @@ impl<'input> Iterator for Lexer<'input> {
                 }
             }
 
-            if is_line_terminator(c) {
+            if is_line_terminator(byte) {
                 if buf.is_empty() {
                     let line = self.consume_line_terminators();
                     return if self.last.is_none() {
@@ -97,12 +99,12 @@ impl<'input> Iterator for Lexer<'input> {
                         self.emit(Kind::Semi, Some(line - 1))
                     };
                 } else {
-                    self.push_char(c);
+                    self.push_byte(byte);
                     break;
                 }
             }
 
-            if c.is_whitespace() {
+            if byte.is_ascii_whitespace() {
                 if buf.is_empty() {
                     // Ignore consecutive whitespace.
                     continue;
@@ -112,7 +114,7 @@ impl<'input> Iterator for Lexer<'input> {
                 }
             }
 
-            buf.push(c);
+            buf.push(byte);
         }
 
         if buf.is_empty() {
@@ -124,13 +126,13 @@ impl<'input> Iterator for Lexer<'input> {
                 }
             }
         } else {
-            self.emit(Kind::Word(buf), None)
+            self.emit(Kind::Word(OsString::from_vec(buf)), None)
         }
     }
 }
 
-fn is_line_terminator(c: char) -> bool {
-    c == '\n' || c == ';'
+fn is_line_terminator(byte: u8) -> bool {
+    byte == b'\n' || byte == b';'
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -147,7 +149,7 @@ impl Token {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Kind {
-    Word(String),
+    Word(OsString),
     LeftBrace,
     RightBrace,
     Semi,
@@ -156,7 +158,7 @@ pub enum Kind {
 impl fmt::Display for Kind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let s = match *self {
-            Kind::Word(ref word) => word,
+            Kind::Word(ref word) => return write!(f, "'{}'", word.to_string_lossy()),
             Kind::LeftBrace => "{",
             Kind::RightBrace => "}",
             Kind::Semi => ";",
@@ -172,7 +174,7 @@ mod tests {
 
     #[test]
     fn command() {
-        let tokens: Vec<Kind> = Lexer::new("cat /etc/hosts /etc/passwd")
+        let tokens: Vec<Kind> = Lexer::new(b"cat /etc/hosts /etc/passwd")
             .map(|t| t.kind)
             .collect();
         assert_eq!(
@@ -188,13 +190,13 @@ mod tests {
 
     #[test]
     fn empty() {
-        let tokens: Vec<Kind> = Lexer::new("\n").map(|t| t.kind).collect();
+        let tokens: Vec<Kind> = Lexer::new(b"\n").map(|t| t.kind).collect();
         assert_eq!(tokens, Vec::new());
     }
 
     #[test]
     fn if_stmt() {
-        let tokens: Vec<Kind> = Lexer::new("if true { echo truthy }\n")
+        let tokens: Vec<Kind> = Lexer::new(b"if true { echo truthy }\n")
             .map(|t| t.kind)
             .collect();
         assert_eq!(
@@ -214,7 +216,7 @@ mod tests {
 
     #[test]
     fn empty_body() {
-        let tokens: Vec<Kind> = Lexer::new("if false { }\n").map(|t| t.kind).collect();
+        let tokens: Vec<Kind> = Lexer::new(b"if false { }\n").map(|t| t.kind).collect();
         assert_eq!(
             tokens,
             vec![
@@ -229,7 +231,7 @@ mod tests {
 
     #[test]
     fn multiline_nested_if_else_stmt() {
-        let src = r#"if /bin/a {
+        let src = br#"if /bin/a {
   echo a
 } else if /bin/b {
   echo b

@@ -40,7 +40,7 @@ impl History {
         Ok(Self { path })
     }
 
-    pub fn readline(&self, prompt: &str) -> Result<Option<String>> {
+    pub fn readline(&self, prompt: &str) -> Result<Option<Vec<u8>>> {
         let prompt = CString::new(prompt)?;
         unsafe {
             let value = ffi::readline(prompt.as_ptr() as *const c_char);
@@ -48,7 +48,7 @@ impl History {
                 return Ok(None);
             }
 
-            let line = CStr::from_ptr(value).to_str()?.to_owned();
+            let line = CStr::from_ptr(value).to_bytes().to_owned();
 
             if !line.is_empty() {
                 ffi::add_history(value);
