@@ -1,7 +1,8 @@
-use std::ffi::OsString;
 use std::fmt;
-use std::os::unix::ffi::OsStringExt;
 use std::slice::Iter;
+
+use Result;
+use word::{Quote, Word};
 
 pub struct Lexer<'input> {
     src: Iter<'input, u8>,
@@ -22,9 +23,9 @@ impl<'input> Lexer<'input> {
         }
     }
 
-    fn emit(&mut self, kind: Kind, line: Option<usize>) -> Option<Token> {
+    fn emit(&mut self, kind: Kind, line: Option<usize>) -> Option<Result<Token>> {
         self.last = Some(kind.clone());
-        Some(Token::new(kind, line.unwrap_or(self.line)))
+        Some(Ok(Token::new(kind, line.unwrap_or(self.line))))
     }
 
     fn next_byte(&mut self) -> Option<u8> {
@@ -54,6 +55,32 @@ impl<'input> Lexer<'input> {
         line
     }
 
+    fn consume_quoted_word(&mut self, quote: u8) -> Option<Result<Token>> {
+        let line = self.line;
+        let mut buf = Vec::new();
+
+        while let Some(byte) = self.next_byte() {
+            if byte == quote {
+                let quote = if quote == b'"' {
+                    Quote::Double
+                } else {
+                    Quote::Single
+                };
+                return self.emit(Kind::Word(Word::new(buf, quote)), Some(line));
+            }
+            buf.push(byte)
+        }
+
+        Some(Err(format_err!(
+            "missing closing quote{}",
+            if buf.is_empty() {
+                "".into()
+            } else {
+                format!(" for: {}", String::from_utf8_lossy(&buf))
+            }
+        )))
+    }
+
     fn should_insert_semi(&self) -> bool {
         match self.last {
             Some(ref kind) => *kind != Kind::LeftBrace && *kind != Kind::Semi,
@@ -63,7 +90,7 @@ impl<'input> Lexer<'input> {
 }
 
 impl<'input> Iterator for Lexer<'input> {
-    type Item = Token;
+    type Item = Result<Token>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(kind) = self.next.take() {
@@ -74,6 +101,9 @@ impl<'input> Iterator for Lexer<'input> {
 
         while let Some(byte) = self.next_byte() {
             if buf.is_empty() {
+                if byte == b'"' || byte == b'\'' {
+                    return self.consume_quoted_word(byte);
+                }
                 if byte == b'{' {
                     let line = self.consume_line_terminators();
                     return self.emit(Kind::LeftBrace, Some(line));
@@ -126,7 +156,7 @@ impl<'input> Iterator for Lexer<'input> {
                 }
             }
         } else {
-            self.emit(Kind::Word(OsString::from_vec(buf)), None)
+            self.emit(Kind::Word(Word::unquoted(buf)), None)
         }
     }
 }
@@ -149,7 +179,7 @@ impl Token {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Kind {
-    Word(OsString),
+    Word(Word),
     LeftBrace,
     RightBrace,
     Semi,
@@ -158,10 +188,10 @@ pub enum Kind {
 impl fmt::Display for Kind {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let s = match *self {
-            Kind::Word(ref word) => return write!(f, "'{}'", word.to_string_lossy()),
-            Kind::LeftBrace => "{",
-            Kind::RightBrace => "}",
-            Kind::Semi => ";",
+            Kind::Word(ref word) => word.to_string(),
+            Kind::LeftBrace => "{".into(),
+            Kind::RightBrace => "}".into(),
+            Kind::Semi => ";".into(),
         };
 
         write!(f, "'{}'", s)
@@ -175,7 +205,7 @@ mod tests {
     #[test]
     fn command() {
         let tokens: Vec<Kind> = Lexer::new(b"cat /etc/hosts /etc/passwd")
-            .map(|t| t.kind)
+            .map(|t| t.unwrap().kind)
             .collect();
         assert_eq!(
             tokens,
@@ -190,14 +220,39 @@ mod tests {
 
     #[test]
     fn empty() {
-        let tokens: Vec<Kind> = Lexer::new(b"\n").map(|t| t.kind).collect();
+        let tokens: Vec<Kind> = Lexer::new(b"\n").map(|t| t.unwrap().kind).collect();
         assert_eq!(tokens, Vec::new());
+    }
+
+    #[test]
+    fn double_quotes() {
+        let tokens: Vec<Kind> = Lexer::new(br#"echo "I'm quoted""#)
+            .map(|t| t.unwrap().kind)
+            .collect();
+        assert_eq!(
+            tokens,
+            vec![
+                Kind::Word("echo".into()),
+                Kind::Word(Word::new("I'm quoted", Quote::Double)),
+                Kind::Semi,
+            ]
+        );
+    }
+
+    #[test]
+    fn double_quotes_unclosed() {
+        let mut lexer = Lexer::new(br#"echo "Missing closing quote"#);
+        assert_eq!(
+            lexer.next().unwrap().unwrap().kind,
+            Kind::Word("echo".into())
+        );
+        assert!(lexer.next().unwrap().is_err());
     }
 
     #[test]
     fn if_stmt() {
         let tokens: Vec<Kind> = Lexer::new(b"if true { echo truthy }\n")
-            .map(|t| t.kind)
+            .map(|t| t.unwrap().kind)
             .collect();
         assert_eq!(
             tokens,
@@ -216,7 +271,9 @@ mod tests {
 
     #[test]
     fn empty_body() {
-        let tokens: Vec<Kind> = Lexer::new(b"if false { }\n").map(|t| t.kind).collect();
+        let tokens: Vec<Kind> = Lexer::new(b"if false { }\n")
+            .map(|t| t.unwrap().kind)
+            .collect();
         assert_eq!(
             tokens,
             vec![
@@ -243,7 +300,7 @@ mod tests {
   echo c
 }
 "#;
-        let tokens: Vec<Token> = Lexer::new(src).collect();
+        let tokens: Vec<Token> = Lexer::new(src).map(|t| t.unwrap()).collect();
         assert_eq!(
             tokens,
             vec![

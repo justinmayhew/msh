@@ -1,6 +1,7 @@
 use std::env;
 use std::ffi::{CString, OsStr, OsString};
-use std::os::unix::ffi::OsStringExt;
+use std::os::unix::ffi::{OsStrExt, OsStringExt};
+use std::path::PathBuf;
 use std::process;
 
 use nix::Error::Sys;
@@ -10,13 +11,14 @@ use nix::unistd::{self, ForkResult};
 
 use Result;
 use ast::Stmt;
-use command::{Command, Execv};
+use command::{Command, Execv, ExpandedCommand};
 use cwd::Cwd;
 use status::Status;
 
 pub struct Interpreter {
     cwd: Cwd,
     path: OsString,
+    home: PathBuf,
 }
 
 impl Interpreter {
@@ -24,6 +26,7 @@ impl Interpreter {
         Self {
             cwd: Cwd::new(),
             path: env::var_os("PATH").unwrap_or_default(),
+            home: env::home_dir().expect("HOME required"),
         }
     }
 
@@ -54,15 +57,17 @@ impl Interpreter {
     }
 
     fn execute_command(&mut self, command: &Command) -> Result<Status> {
-        if command.name() == "cd" {
+        let command = command.expand(&self.home);
+
+        if command.name().as_bytes() == b"cd" {
             Ok(self.cwd.cd(command.arguments()))
         } else {
-            execute(command, &self.path)
+            execute(&command, &self.path)
         }
     }
 }
 
-fn execute(command: &Command, path: &OsStr) -> Result<Status> {
+fn execute(command: &ExpandedCommand, path: &OsStr) -> Result<Status> {
     debug!("forking to execute {:?}", command);
 
     match unistd::fork()? {

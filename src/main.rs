@@ -21,6 +21,7 @@ mod interpreter;
 mod lexer;
 mod parser;
 mod status;
+mod word;
 
 use std::fs::File;
 use std::io;

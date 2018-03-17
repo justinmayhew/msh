@@ -1,28 +1,49 @@
 use std::ffi::{CString, OsStr, OsString};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
+use std::path::Path;
+
+use word::Word;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Command {
-    name: OsString,
-    arguments: Vec<OsString>,
+    name: Word,
+    arguments: Vec<Word>,
 }
 
 impl Command {
-    pub fn new(name: OsString, arguments: Vec<OsString>) -> Self {
+    pub fn new(name: Word, arguments: Vec<Word>) -> Self {
         Self { name, arguments }
     }
 
-    pub fn from_name(name: OsString) -> Self {
+    pub fn from_name(name: Word) -> Self {
         Self {
             name,
             arguments: Vec::new(),
         }
     }
 
-    pub fn add_argument(&mut self, argument: OsString) {
+    pub fn add_argument(&mut self, argument: Word) {
         self.arguments.push(argument);
     }
 
+    pub fn expand<P: AsRef<Path>>(&self, home: P) -> ExpandedCommand {
+        ExpandedCommand {
+            name: self.name.expand(home.as_ref()),
+            arguments: self.arguments
+                .iter()
+                .map(|argument| argument.expand(home.as_ref()))
+                .collect(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ExpandedCommand {
+    name: OsString,
+    arguments: Vec<OsString>,
+}
+
+impl ExpandedCommand {
     pub fn into_execv(mut self) -> Execv {
         self.arguments.insert(0, self.name.clone());
 
