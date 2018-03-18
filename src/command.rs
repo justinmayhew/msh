@@ -2,6 +2,7 @@ use std::ffi::{CString, OsStr, OsString};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::Path;
 
+use Result;
 use word::Word;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -11,6 +12,7 @@ pub struct Command {
 }
 
 impl Command {
+    #[cfg(test)]
     pub fn new(name: Word, arguments: Vec<Word>) -> Self {
         Self { name, arguments }
     }
@@ -26,14 +28,15 @@ impl Command {
         self.arguments.push(argument);
     }
 
-    pub fn expand<P: AsRef<Path>>(&self, home: P) -> ExpandedCommand {
-        ExpandedCommand {
-            name: self.name.expand(home.as_ref()),
-            arguments: self.arguments
-                .iter()
-                .map(|argument| argument.expand(home.as_ref()))
-                .collect(),
+    pub fn expand<P: AsRef<Path>>(&self, home: P) -> Result<ExpandedCommand> {
+        let name = self.name.expand(home.as_ref())?;
+
+        let mut arguments = Vec::new();
+        for argument in &self.arguments {
+            arguments.push(argument.expand(home.as_ref())?);
         }
+
+        Ok(ExpandedCommand { name, arguments })
     }
 }
 

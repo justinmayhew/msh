@@ -9,7 +9,7 @@ use nix::errno::Errno;
 use nix::sys::wait::{self, WaitStatus};
 use nix::unistd::{self, ForkResult};
 
-use Result;
+use {display_err, Result};
 use ast::Stmt;
 use command::{Command, Execv, ExpandedCommand};
 use cwd::Cwd;
@@ -57,7 +57,13 @@ impl Interpreter {
     }
 
     fn execute_command(&mut self, command: &Command) -> Result<Status> {
-        let command = command.expand(&self.home);
+        let command = match command.expand(&self.home) {
+            Ok(command) => command,
+            Err(e) => {
+                display_err(&e);
+                return Ok(Status::Failure);
+            }
+        };
 
         if command.name().as_bytes() == b"cd" {
             Ok(self.cwd.cd(&self.home, command.arguments()))
