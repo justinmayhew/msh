@@ -1,5 +1,7 @@
+use std::ffi::OsString;
+
 use Result;
-use ast::{Block, IfStmt, Program, Stmt, WhileStmt};
+use ast::{Assignment, Block, IfStmt, Program, Stmt, WhileStmt};
 use command::Command;
 use lexer::{Kind, Lexer, Token};
 use word::Word;
@@ -55,6 +57,34 @@ impl<'input> Parser<'input> {
         }
     }
 
+    fn match_if<F, T>(&mut self, map_predicate: F) -> Result<Option<T>>
+    where
+        F: Fn(&Token) -> Option<T>,
+    {
+        match self.next_token()? {
+            Some(next) => match map_predicate(&next) {
+                Some(t) => Ok(Some(t)),
+                None => {
+                    self.push_token(next);
+                    Ok(None)
+                }
+            },
+            None => Ok(None),
+        }
+    }
+
+    fn match_word(&mut self) -> Result<Option<Word>> {
+        match self.next_token()? {
+            Some(next) => if let Kind::Word(word) = next.kind {
+                Ok(Some(word))
+            } else {
+                self.push_token(next);
+                Ok(None)
+            },
+            None => Ok(None),
+        }
+    }
+
     fn assert_token(&mut self, expected: &Kind) -> Result<()> {
         match self.next_token()? {
             Some(Token { ref kind, .. }) if kind == expected => Ok(()),
@@ -101,6 +131,8 @@ impl<'input> Parser<'input> {
             Stmt::If(self.parse_if_stmt()?)
         } else if word.as_bytes() == b"while" {
             Stmt::While(self.parse_while_stmt()?)
+        } else if let Some(pair) = word.parse_name_value_pair() {
+            Stmt::Assignment(self.parse_assignment(pair)?)
         } else {
             Stmt::Command(self.parse_command(Some(word))?)
         };
@@ -130,6 +162,22 @@ impl<'input> Parser<'input> {
         Ok(WhileStmt::new(test, body))
     }
 
+    fn parse_assignment(&mut self, first: (OsString, OsString)) -> Result<Assignment> {
+        let mut pairs = vec![first];
+
+        while let Some(pair) = self.match_if(|token| {
+            if let Kind::Word(ref word) = token.kind {
+                word.parse_name_value_pair()
+            } else {
+                None
+            }
+        })? {
+            pairs.push(pair);
+        }
+
+        Ok(pairs)
+    }
+
     fn parse_command(&mut self, mut name: Option<Word>) -> Result<Command> {
         let name = match name.take() {
             Some(name) => name,
@@ -137,14 +185,8 @@ impl<'input> Parser<'input> {
         };
         let mut command = Command::from_name(name);
 
-        loop {
-            let token = self.next_token()?.unwrap();
-            if let Kind::Word(argument) = token.kind {
-                command.add_argument(argument);
-            } else {
-                self.push_token(token);
-                break;
-            }
+        while let Some(argument) = self.match_word()? {
+            command.add_argument(argument);
         }
 
         Ok(command)

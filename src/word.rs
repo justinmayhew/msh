@@ -38,6 +38,27 @@ impl Word {
         self.value.as_bytes()
     }
 
+    pub fn parse_name_value_pair(&self) -> Option<(OsString, OsString)> {
+        if self.quote.is_some() {
+            return None;
+        }
+
+        let word = self.as_bytes();
+        let (name, value) = match word.iter().position(|&b| b == b'=') {
+            Some(0) | None => return None,
+            Some(pos) => (&word[..pos], &word[pos + 1..]),
+        };
+
+        if !is_valid_name(name) {
+            return None;
+        }
+
+        Some((
+            OsString::from_vec(name.to_vec()),
+            OsString::from_vec(value.to_vec()),
+        ))
+    }
+
     pub fn expand<H: AsRef<OsStr>>(&self, home: H) -> Result<OsString> {
         let word = self.as_bytes();
 

@@ -1,3 +1,5 @@
+use std::ffi::OsString;
+
 use command::Command;
 
 pub type Program = Block;
@@ -7,6 +9,7 @@ pub type Block = Vec<Stmt>;
 pub enum Stmt {
     If(IfStmt),
     While(WhileStmt),
+    Assignment(Assignment),
     Command(Command),
 }
 
@@ -38,3 +41,5 @@ impl WhileStmt {
         Self { test, body }
     }
 }
+
+pub type Assignment = Vec<(OsString, OsString)>;

@@ -43,6 +43,9 @@ impl Interpreter {
                 Stmt::While(ref stmt) => while self.execute_command(&stmt.test)?.is_success() {
                     self.execute(&stmt.body)?;
                 },
+                Stmt::Assignment(ref pairs) => for &(ref name, ref value) in pairs {
+                    env::set_var(name, value);
+                },
                 Stmt::Command(ref command) => {
                     self.execute_command(command)?;
                 }

@@ -3,14 +3,17 @@ Program = StmtList ;
 Block = "{" StmtList "}" ;
 StmtList = { Stmt ";" } ;
 
-Stmt = IfStmt | WhileStmt | Command ;
+Stmt = IfStmt | WhileStmt | Assignment | Command ;
 
 IfStmt = "if" Command Block [ "else" ( IfStmt | Block ) ] ;
 
 WhileStmt = "while" Command Block ;
 
+Assignment = NameValuePair { NameValuePair } ;
+
 Command = CommandName { Argument } ;
 CommandName = Word ;
 Argument = Word ;
 
+NameValuePair = /* TBD */ ;
 Word = /* TBD */ ;
