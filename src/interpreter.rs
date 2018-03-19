@@ -44,7 +44,7 @@ impl Interpreter {
                     self.execute(&stmt.body)?;
                 },
                 Stmt::Assignment(ref pairs) => for &(ref name, ref value) in pairs {
-                    env::set_var(name.to_os_string(), value.to_os_string());
+                    env::set_var(&name.value, &value.value);
                 },
                 Stmt::Command(ref command) => {
                     self.execute_command(command)?;
