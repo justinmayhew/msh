@@ -1,6 +1,5 @@
-use std::ffi::OsString;
-
 use command::Command;
+use word::Word;
 
 pub type Program = Block;
 pub type Block = Vec<Stmt>;
@@ -42,4 +41,4 @@ impl WhileStmt {
     }
 }
 
-pub type Assignment = Vec<(OsString, OsString)>;
+pub type Assignment = Vec<(Word, Word)>;

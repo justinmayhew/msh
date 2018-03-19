@@ -1,7 +1,5 @@
-use std::ffi::OsString;
-
 use Result;
-use ast::{Assignment, Block, IfStmt, Program, Stmt, WhileStmt};
+use ast::{Block, IfStmt, Program, Stmt, WhileStmt};
 use command::Command;
 use lexer::{Kind, Lexer, Token};
 use word::Word;
@@ -54,22 +52,6 @@ impl<'input> Parser<'input> {
                 Ok(false)
             },
             None => Ok(false),
-        }
-    }
-
-    fn match_if<F, T>(&mut self, map_predicate: F) -> Result<Option<T>>
-    where
-        F: Fn(&Token) -> Option<T>,
-    {
-        match self.next_token()? {
-            Some(next) => match map_predicate(&next) {
-                Some(t) => Ok(Some(t)),
-                None => {
-                    self.push_token(next);
-                    Ok(None)
-                }
-            },
-            None => Ok(None),
         }
     }
 
@@ -131,10 +113,8 @@ impl<'input> Parser<'input> {
             Stmt::If(self.parse_if_stmt()?)
         } else if word.as_bytes() == b"while" {
             Stmt::While(self.parse_while_stmt()?)
-        } else if let Some(pair) = word.parse_name_value_pair() {
-            Stmt::Assignment(self.parse_assignment(pair)?)
         } else {
-            Stmt::Command(self.parse_command(Some(word))?)
+            self.parse_assignment_or_command(word)?
         };
         Ok(stmt)
     }
@@ -162,20 +142,22 @@ impl<'input> Parser<'input> {
         Ok(WhileStmt::new(test, body))
     }
 
-    fn parse_assignment(&mut self, first: (OsString, OsString)) -> Result<Assignment> {
-        let mut pairs = vec![first];
-
-        while let Some(pair) = self.match_if(|token| {
-            if let Kind::Word(ref word) = token.kind {
-                word.parse_name_value_pair()
-            } else {
-                None
+    fn parse_assignment_or_command(&mut self, word: Word) -> Result<Stmt> {
+        if let Some(pair) = word.parse_name_value_pair() {
+            let mut env = vec![pair];
+            while let Some(word) = self.match_word()? {
+                if let Some(pair) = word.parse_name_value_pair() {
+                    env.push(pair);
+                } else {
+                    let mut command = self.parse_command(Some(word))?;
+                    command.set_env(env);
+                    return Ok(Stmt::Command(command));
+                }
             }
-        })? {
-            pairs.push(pair);
+            Ok(Stmt::Assignment(env))
+        } else {
+            Ok(Stmt::Command(self.parse_command(Some(word))?))
         }
-
-        Ok(pairs)
     }
 
     fn parse_command(&mut self, mut name: Option<Word>) -> Result<Command> {
@@ -266,6 +248,29 @@ mod tests {
                 Stmt::Command(Command::new("echo".into(), vec!["2".into()])),
                 Stmt::Command(Command::new("echo".into(), vec!["3".into()])),
             ],
+        );
+    }
+
+    #[test]
+    fn assignment() {
+        assert_eq!(
+            parse(b"FOO=bar one=ONE").unwrap(),
+            vec![
+                Stmt::Assignment(vec![
+                    (Word::unquoted("FOO"), Word::unquoted("bar")),
+                    (Word::unquoted("one"), Word::unquoted("ONE")),
+                ]),
+            ],
+        );
+    }
+
+    #[test]
+    fn command_with_assignment() {
+        let mut command = Command::new("./server".into(), vec!["--http".into()]);
+        command.set_env(vec![(Word::unquoted("PORT"), Word::unquoted("8000"))]);
+        assert_eq!(
+            parse(b"PORT=8000 ./server --http").unwrap(),
+            vec![Stmt::Command(command)]
         );
     }
 

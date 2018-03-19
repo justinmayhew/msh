@@ -34,11 +34,15 @@ impl Word {
         Self::new(buf.into(), None)
     }
 
+    pub fn to_os_string(&self) -> OsString {
+        OsString::from_vec(self.as_bytes().to_vec())
+    }
+
     pub fn as_bytes(&self) -> &[u8] {
         self.value.as_bytes()
     }
 
-    pub fn parse_name_value_pair(&self) -> Option<(OsString, OsString)> {
+    pub fn parse_name_value_pair(&self) -> Option<(Word, Word)> {
         if self.quote.is_some() {
             return None;
         }
@@ -53,10 +57,7 @@ impl Word {
             return None;
         }
 
-        Some((
-            OsString::from_vec(name.to_vec()),
-            OsString::from_vec(value.to_vec()),
-        ))
+        Some((Word::unquoted(name), Word::unquoted(value)))
     }
 
     pub fn expand<H: AsRef<OsStr>>(&self, home: H) -> Result<OsString> {

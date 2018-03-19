@@ -44,7 +44,7 @@ impl Interpreter {
                     self.execute(&stmt.body)?;
                 },
                 Stmt::Assignment(ref pairs) => for &(ref name, ref value) in pairs {
-                    env::set_var(name, value);
+                    env::set_var(name.to_os_string(), value.to_os_string());
                 },
                 Stmt::Command(ref command) => {
                     self.execute_command(command)?;
@@ -99,11 +99,11 @@ fn execute(command: &ExpandedCommand, path: &OsStr) -> Result<Status> {
         },
         ForkResult::Child => {
             match command.clone().into_execv() {
-                Execv::Exact(path, argv) => execv(&path, &argv),
-                Execv::Relative(name, argv) => for mut path in env::split_paths(path) {
+                Execv::Exact(path, argv, env) => execve(&path, &argv, &env),
+                Execv::Relative(name, argv, env) => for mut path in env::split_paths(path) {
                     path.push(&name);
                     let path = CString::new(path.into_os_string().into_vec()).unwrap();
-                    execv(&path, &argv);
+                    execve(&path, &argv, &env);
                 },
             }
 
@@ -113,9 +113,9 @@ fn execute(command: &ExpandedCommand, path: &OsStr) -> Result<Status> {
     }
 }
 
-fn execv(path: &CString, argv: &[CString]) {
-    debug!("[child] execv {:?} {:?}", path, argv);
-    match unistd::execv(path, argv) {
+fn execve(path: &CString, argv: &[CString], env: &[CString]) {
+    debug!("[child] execve {:?} {:?}", path, argv);
+    match unistd::execve(path, argv, env) {
         Ok(_) => unreachable!(),
         Err(Sys(Errno::ENOENT)) => {}
         Err(e) => {

@@ -11,7 +11,7 @@ WhileStmt = "while" Command Block ;
 
 Assignment = NameValuePair { NameValuePair } ;
 
-Command = CommandName { Argument } ;
+Command = [ Assignment ] CommandName { Argument } ;
 CommandName = Word ;
 Argument = Word ;
 
