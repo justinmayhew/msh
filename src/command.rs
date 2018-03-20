@@ -1,17 +1,16 @@
-use std::env;
 use std::ffi::{CString, OsStr, OsString};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
-use std::path::Path;
 
 use Result;
-use ast::Assignment;
+use ast::NameValuePair;
+use environment::Environment;
 use word::Word;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Command {
     name: Word,
     arguments: Vec<Word>,
-    env: Assignment,
+    env: Vec<NameValuePair>,
 }
 
 impl Command {
@@ -36,21 +35,21 @@ impl Command {
         self.arguments.push(argument);
     }
 
-    pub fn set_env(&mut self, env: Assignment) {
+    pub fn set_env(&mut self, env: Vec<NameValuePair>) {
         self.env = env;
     }
 
-    pub fn expand<P: AsRef<Path>>(&self, home: P) -> Result<ExpandedCommand> {
-        let name = self.name.expand(home.as_ref())?;
+    pub fn expand(&self, environment: &Environment) -> Result<ExpandedCommand> {
+        let name = self.name.expand(environment)?;
 
         let mut arguments = Vec::new();
         for argument in &self.arguments {
-            arguments.push(argument.expand(home.as_ref())?);
+            arguments.push(argument.expand(environment)?);
         }
 
         let mut env = Vec::new();
-        for &(ref name, ref value) in &self.env {
-            env.push((name.to_os_string(), value.expand(home.as_ref())?));
+        for pair in &self.env {
+            env.push((pair.name.to_os_string(), pair.value.expand(environment)?));
         }
 
         Ok(ExpandedCommand {
@@ -69,7 +68,7 @@ pub struct ExpandedCommand {
 }
 
 impl ExpandedCommand {
-    pub fn into_execv(mut self) -> Execv {
+    pub fn into_execv(mut self, environment: &Environment) -> Execv {
         self.arguments.insert(0, self.name.clone());
 
         let arguments = self.arguments
@@ -77,8 +76,11 @@ impl ExpandedCommand {
             .map(|argument| CString::new(argument.clone().into_vec()).unwrap())
             .collect();
 
-        let mut env: Vec<_> = env::vars_os().map(pair_to_execv).collect();
-        env.extend(self.env.iter().cloned().map(pair_to_execv));
+        let mut env: Vec<_> = environment
+            .iter_exported()
+            .map(|(name, value)| pair_to_execv((name.to_owned(), value.to_owned())))
+            .collect();
+        env.extend(self.env.into_iter().map(pair_to_execv));
 
         if self.name.as_bytes().contains(&b'/') {
             Execv::Exact(CString::new(self.name.into_vec()).unwrap(), arguments, env)

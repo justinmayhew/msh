@@ -1,4 +1,3 @@
-use std::env;
 use std::ffi::{CStr, CString, OsStr, OsString};
 use std::fmt;
 use std::iter::Cloned;
@@ -8,6 +7,8 @@ use std::slice::Iter;
 use libc;
 
 use Result;
+use ast::NameValuePair;
+use environment::Environment;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Word {
@@ -38,11 +39,19 @@ impl Word {
         OsString::from_vec(self.as_bytes().to_vec())
     }
 
+    pub fn as_os_str(&self) -> &OsStr {
+        OsStr::from_bytes(self.as_bytes())
+    }
+
     pub fn as_bytes(&self) -> &[u8] {
         self.value.as_bytes()
     }
 
-    pub fn parse_name_value_pair(&self) -> Option<(Word, Word)> {
+    pub fn is_valid_name(&self) -> bool {
+        is_valid_name(self.as_bytes())
+    }
+
+    pub fn parse_name_value_pair(&self) -> Option<NameValuePair> {
         if self.quote.is_some() {
             return None;
         }
@@ -57,18 +66,21 @@ impl Word {
             return None;
         }
 
-        Some((Word::unquoted(name), Word::unquoted(value)))
+        Some(NameValuePair::new(
+            Word::unquoted(name),
+            parse_quoted_word(value).unwrap_or_else(|| Word::unquoted(value)),
+        ))
     }
 
-    pub fn expand<H: AsRef<OsStr>>(&self, home: H) -> Result<OsString> {
+    pub fn expand(&self, env: &Environment) -> Result<OsString> {
         let word = self.as_bytes();
 
         match self.quote {
             Some(Quote::Single) => Ok(OsString::from_vec(word.to_vec())),
-            Some(Quote::Double) => expand_env_vars(word),
+            Some(Quote::Double) => expand_env_vars(word, env),
             None => {
-                let word = expand_tilde(word, home);
-                expand_env_vars(word.as_bytes())
+                let word = expand_tilde(word, env.home());
+                expand_env_vars(word.as_bytes(), env)
             }
         }
     }
@@ -80,18 +92,23 @@ impl<'a> From<&'a str> for Word {
     }
 }
 
+impl AsRef<OsStr> for Word {
+    fn as_ref(&self) -> &OsStr {
+        self.as_os_str()
+    }
+}
+
 impl fmt::Display for Word {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let quote = match self.quote {
-            Some(Quote::Single) => "'",
-            Some(Quote::Double) => "\"",
-            None => "",
-        };
         write!(
             f,
             "{quote}{value}{quote}",
             value = self.value.to_string_lossy(),
-            quote = quote
+            quote = if let Some(quote) = self.quote {
+                quote.to_string()
+            } else {
+                "".to_string()
+            }
         )
     }
 }
@@ -100,6 +117,19 @@ impl fmt::Display for Word {
 pub enum Quote {
     Single,
     Double,
+}
+
+impl fmt::Display for Quote {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{}",
+            match *self {
+                Quote::Single => "'",
+                Quote::Double => "\"",
+            }
+        )
+    }
 }
 
 fn home_directory(username: &[u8]) -> Option<OsString> {
@@ -157,9 +187,9 @@ fn expand_tilde<H: AsRef<OsStr>>(word: &[u8], home: H) -> OsString {
         })
 }
 
-fn expand_env_vars(word: &[u8]) -> Result<OsString> {
+fn expand_env_vars(word: &[u8], env: &Environment) -> Result<OsString> {
     match word.iter().position(|&b| b == b'$') {
-        Some(pos) => EnvExpander::new(word, pos).expand(),
+        Some(pos) => EnvExpander::new(word, pos, env).expand(),
         None => Ok(OsString::from_vec(word.to_vec())),
     }
 }
@@ -167,14 +197,16 @@ fn expand_env_vars(word: &[u8]) -> Result<OsString> {
 struct EnvExpander<'a> {
     buf: Vec<u8>,
     bytes: Cloned<Iter<'a, u8>>,
+    env: &'a Environment,
     peek: Option<u8>,
 }
 
 impl<'a> EnvExpander<'a> {
-    fn new(word: &'a [u8], pos: usize) -> Self {
+    fn new(word: &'a [u8], pos: usize, env: &'a Environment) -> Self {
         Self {
             buf: word[0..pos].to_vec(),
             bytes: word[pos + 1..].iter().cloned(),
+            env,
             peek: None,
         }
     }
@@ -248,7 +280,7 @@ impl<'a> EnvExpander<'a> {
     }
 
     fn append_var(&mut self, name: &[u8]) {
-        if let Some(value) = env::var_os(OsStr::from_bytes(name)) {
+        if let Some(value) = self.env.get(OsStr::from_bytes(name)) {
             self.buf.extend(value.as_bytes());
         }
     }
@@ -267,11 +299,31 @@ fn is_valid_name_byte(byte: u8) -> bool {
     is_valid_first_byte(byte) || byte.is_ascii_digit()
 }
 
+fn parse_quoted_word(value: &[u8]) -> Option<Word> {
+    let len = value.len();
+    if len < 2 {
+        return None;
+    }
+
+    let (first, inner, last) = (value[0], &value[1..len - 1], value[len - 1]);
+    if first != last {
+        return None;
+    }
+
+    let quote = match first {
+        b'\'' => Quote::Single,
+        b'"' => Quote::Double,
+        _ => return None,
+    };
+    Some(Word::new(inner, quote))
+}
+
 #[cfg(test)]
 mod tests {
     use std::env;
     use std::path::Path;
     use super::*;
+    use environment::Environment;
 
     fn home() -> OsString {
         env::var_os("HOME").unwrap()
@@ -283,29 +335,31 @@ mod tests {
 
     #[test]
     fn tilde_expansion() {
-        assert_eq!(Word::unquoted("~").expand(&home()).unwrap(), home());
+        let env = Environment::new();
+        assert_eq!(Word::unquoted("~").expand(&env).unwrap(), home());
         assert_eq!(
-            Word::unquoted("~/Desktop").expand(&home()).unwrap(),
+            Word::unquoted("~/Desktop").expand(&env).unwrap(),
             Path::new(&home()).join("Desktop"),
         );
 
         for quote in vec![Quote::Single, Quote::Double] {
-            assert_eq!(
-                Word::new("~", quote).expand(&home()).unwrap(),
-                OsStr::new("~")
-            );
+            assert_eq!(Word::new("~", quote).expand(&env).unwrap(), OsStr::new("~"));
         }
     }
 
     #[test]
     fn tilde_expansion_user() {
+        let env = Environment::new();
         let mut input = OsString::new();
         input.push("~");
         input.push(user());
-        assert_eq!(Word::unquoted(input.as_bytes()).expand("").unwrap(), home());
+        assert_eq!(
+            Word::unquoted(input.as_bytes()).expand(&env).unwrap(),
+            home()
+        );
         input.push("/Downloads");
         assert_eq!(
-            Word::unquoted(input.as_bytes()).expand("").unwrap(),
+            Word::unquoted(input.as_bytes()).expand(&env).unwrap(),
             Path::new(&home()).join("Downloads"),
         );
     }
@@ -329,14 +383,38 @@ mod tests {
             ));
         }
 
+        let env = Environment::new();
         for (input, expected) in tests {
             for quote in vec![None, Some(Quote::Single), Some(Quote::Double)] {
                 let word = Word::new(input.as_bytes(), quote);
                 match quote {
-                    None | Some(Quote::Double) => assert_eq!(word.expand("").unwrap(), expected),
-                    Some(Quote::Single) => assert_eq!(word.expand("").unwrap(), input),
+                    None | Some(Quote::Double) => assert_eq!(word.expand(&env).unwrap(), expected),
+                    Some(Quote::Single) => assert_eq!(word.expand(&env).unwrap(), input),
                 }
             }
+        }
+    }
+
+    #[test]
+    fn name_value_pairs() {
+        let word = Word::new("FOO=bar", None);
+        assert_eq!(
+            word.parse_name_value_pair(),
+            Some(NameValuePair::new(
+                Word::unquoted("FOO"),
+                Word::unquoted("bar"),
+            )),
+        );
+
+        for quote in vec![Quote::Single, Quote::Double] {
+            let word = Word::new(format!("FOO={quote}bar{quote}", quote = quote), None);
+            assert_eq!(
+                word.parse_name_value_pair(),
+                Some(NameValuePair::new(
+                    Word::unquoted("FOO"),
+                    Word::new("bar", quote),
+                )),
+            );
         }
     }
 }

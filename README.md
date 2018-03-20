@@ -12,6 +12,6 @@ A simple Unix shell.
 - [x] Expands `~` and environment variables
 - [ ] Aliases
 - [ ] Startup configuration file
-- [ ] Environment variable manipulation
+- [x] Environment variable manipulation
 - [ ] Pipelines
 - [ ] Standard stream redirection

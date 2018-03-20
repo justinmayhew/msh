@@ -1,4 +1,4 @@
-#![feature(transpose_result)]
+#![feature(nll, transpose_result)]
 
 extern crate env_logger;
 #[macro_use]
@@ -18,6 +18,7 @@ macro_rules! display {
 mod ast;
 mod command;
 mod cwd;
+mod environment;
 mod history;
 mod interpreter;
 mod lexer;

@@ -3,11 +3,14 @@ Program = StmtList ;
 Block = "{" StmtList "}" ;
 StmtList = { Stmt ";" } ;
 
-Stmt = IfStmt | WhileStmt | Assignment | Command ;
+Stmt = IfStmt | WhileStmt | ExportStmt | Assignment | Command ;
 
 IfStmt = "if" Command Block [ "else" ( IfStmt | Block ) ] ;
 
 WhileStmt = "while" Command Block ;
+
+ExportStmt = "export" Exportable { Exportable } ;
+Exportable = Name | NameValuePair ;
 
 Assignment = NameValuePair { NameValuePair } ;
 
@@ -15,5 +18,6 @@ Command = [ Assignment ] CommandName { Argument } ;
 CommandName = Word ;
 Argument = Word ;
 
-NameValuePair = /* TBD */ ;
 Word = /* TBD */ ;
+Name = /* TBD */ ;
+NameValuePair = /* TBD */ ;

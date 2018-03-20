@@ -1,5 +1,5 @@
 use Result;
-use ast::{Block, IfStmt, Program, Stmt, WhileStmt};
+use ast::{Block, Exportable, IfStmt, Program, Stmt, WhileStmt};
 use command::Command;
 use lexer::{Kind, Lexer, Token};
 use word::Word;
@@ -113,6 +113,8 @@ impl<'input> Parser<'input> {
             Stmt::If(self.parse_if_stmt()?)
         } else if word.as_bytes() == b"while" {
             Stmt::While(self.parse_while_stmt()?)
+        } else if word.as_bytes() == b"export" {
+            Stmt::Export(self.parse_export_stmt()?)
         } else {
             self.parse_assignment_or_command(word)?
         };
@@ -140,6 +142,31 @@ impl<'input> Parser<'input> {
         let test = self.parse_command(None)?;
         let body = self.parse_block()?;
         Ok(WhileStmt::new(test, body))
+    }
+
+    fn parse_export_stmt(&mut self) -> Result<Vec<Exportable>> {
+        let mut exports = Vec::new();
+
+        while let Some(token) = self.next_token()? {
+            if let Kind::Word(word) = token.kind {
+                if let Some(pair) = word.parse_name_value_pair() {
+                    exports.push(Exportable::new(pair.name, Some(pair.value)));
+                } else if word.is_valid_name() {
+                    exports.push(Exportable::new(word, None));
+                } else {
+                    bail!("not a valid name: {}", word);
+                }
+            } else {
+                self.push_token(token);
+                break;
+            }
+        }
+
+        if exports.is_empty() {
+            bail!("expected at least one name or name value pair after export");
+        } else {
+            Ok(exports)
+        }
     }
 
     fn parse_assignment_or_command(&mut self, word: Word) -> Result<Stmt> {
@@ -191,6 +218,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ast::NameValuePair;
 
     #[test]
     fn simple() {
@@ -257,8 +285,8 @@ mod tests {
             parse(b"FOO=bar one=ONE").unwrap(),
             vec![
                 Stmt::Assignment(vec![
-                    (Word::unquoted("FOO"), Word::unquoted("bar")),
-                    (Word::unquoted("one"), Word::unquoted("ONE")),
+                    NameValuePair::new(Word::unquoted("FOO"), Word::unquoted("bar")),
+                    NameValuePair::new(Word::unquoted("one"), Word::unquoted("ONE")),
                 ]),
             ],
         );
@@ -267,7 +295,9 @@ mod tests {
     #[test]
     fn command_with_assignment() {
         let mut command = Command::new("./server".into(), vec!["--http".into()]);
-        command.set_env(vec![(Word::unquoted("PORT"), Word::unquoted("8000"))]);
+        command.set_env(vec![
+            NameValuePair::new(Word::unquoted("PORT"), Word::unquoted("8000")),
+        ]);
         assert_eq!(
             parse(b"PORT=8000 ./server --http").unwrap(),
             vec![Stmt::Command(command)]

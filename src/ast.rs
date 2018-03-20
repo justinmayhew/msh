@@ -8,7 +8,8 @@ pub type Block = Vec<Stmt>;
 pub enum Stmt {
     If(IfStmt),
     While(WhileStmt),
-    Assignment(Assignment),
+    Export(Vec<Exportable>),
+    Assignment(Vec<NameValuePair>),
     Command(Command),
 }
 
@@ -41,4 +42,26 @@ impl WhileStmt {
     }
 }
 
-pub type Assignment = Vec<(Word, Word)>;
+#[derive(Debug, PartialEq)]
+pub struct Exportable {
+    pub name: Word,
+    pub value: Option<Word>,
+}
+
+impl Exportable {
+    pub fn new(name: Word, value: Option<Word>) -> Self {
+        Self { name, value }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct NameValuePair {
+    pub name: Word,
+    pub value: Word,
+}
+
+impl NameValuePair {
+    pub fn new(name: Word, value: Word) -> Self {
+        Self { name, value }
+    }
+}
