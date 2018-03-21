@@ -3,12 +3,11 @@
 extern crate env_logger;
 #[macro_use]
 extern crate failure;
+extern crate getopts;
 extern crate libc;
 #[macro_use]
 extern crate log;
 extern crate nix;
-#[macro_use]
-extern crate structopt;
 
 macro_rules! display {
     ($fmt:expr) => (eprintln!(concat!(env!("CARGO_PKG_NAME"), ": ", $fmt)));
@@ -26,14 +25,14 @@ mod parser;
 mod status;
 mod word;
 
+use std::env;
 use std::fs::File;
 use std::io;
-use std::path::PathBuf;
 use std::process;
 use std::result;
 
 use failure::ResultExt;
-use structopt::StructOpt;
+use getopts::Options;
 
 use history::History;
 use interpreter::Interpreter;
@@ -45,19 +44,10 @@ fn display_err(e: &failure::Error) {
     display!("{}", causes.join(": "));
 }
 
-#[derive(Debug, StructOpt)]
-#[structopt(about = "A simple Unix shell")]
-struct Options {
-    #[structopt(help = "Executes the script file provided", parse(from_os_str))]
-    file: Option<PathBuf>,
-    #[structopt(long = "history", help = "Sets the history file location", parse(from_os_str))]
-    history: Option<PathBuf>,
-}
-
 fn main() {
     env_logger::init();
 
-    let code = match run(Options::from_args()) {
+    let code = match run() {
         Ok(()) => 0,
         Err(e) => {
             display_err(&e);
@@ -68,18 +58,47 @@ fn main() {
     process::exit(code);
 }
 
-fn run(options: Options) -> Result<()> {
-    match options.file {
-        Some(path) => File::open(&path)
-            .map_err(Into::into)
-            .and_then(execute)
-            .with_context(|_| path.display().to_string())
-            .map_err(Into::into),
-        None => if stdin_isatty() {
-            repl(&options)
+fn run() -> Result<()> {
+    let mut opts = Options::new();
+    opts.optflag("V", "version", "Print version info and exit");
+    opts.optflag("h", "help", "Display this message");
+
+    let matches = opts.parse(env::args_os().skip(1)).unwrap_or_else(|e| {
+        eprintln!("{}\n", e);
+        print_usage_and_exit(&opts, 1);
+    });
+
+    if matches.opt_present("h") {
+        print_usage_and_exit(&opts, 0);
+    }
+
+    if matches.opt_present("V") {
+        println!(concat!(
+            env!("CARGO_PKG_NAME"),
+            " ",
+            env!("CARGO_PKG_VERSION")
+        ));
+        return Ok(());
+    }
+
+    match matches.free.len() {
+        0 => if stdin_isatty() {
+            repl()
         } else {
             execute(io::stdin())
         },
+        1 => {
+            let path = matches.free[0].clone();
+            if path == "-" {
+                execute(io::stdin())
+            } else {
+                execute(File::open(&path).context(path)?)
+            }
+        }
+        _ => {
+            eprintln!("Only one 'FILE' argument is allowed\n");
+            print_usage_and_exit(&opts, 1);
+        }
     }
 }
 
@@ -91,8 +110,8 @@ fn execute<R: io::Read>(mut reader: R) -> Result<()> {
     Interpreter::new().execute(&program)
 }
 
-fn repl(options: &Options) -> Result<()> {
-    let history = History::new(options.history.as_ref())?;
+fn repl() -> Result<()> {
+    let history = History::new()?;
     let mut interpreter = Interpreter::new();
 
     while let Some(line) = history.readline(&format!("{} $ ", interpreter.cwd()))? {
@@ -105,4 +124,14 @@ fn repl(options: &Options) -> Result<()> {
 
 fn stdin_isatty() -> bool {
     unsafe { libc::isatty(libc::STDIN_FILENO) == 1 }
+}
+
+fn print_usage_and_exit(opts: &Options, code: i32) -> ! {
+    let usage = opts.usage(concat!("Usage: ", env!("CARGO_PKG_NAME"), " [FILE]"));
+    if code == 0 {
+        print!("{}", usage);
+    } else {
+        eprint!("{}", usage);
+    }
+    process::exit(code)
 }
