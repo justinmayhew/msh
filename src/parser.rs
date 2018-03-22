@@ -90,35 +90,26 @@ impl<'input> Parser<'input> {
         self.assert_token(&Kind::LeftBrace)?;
 
         let mut block = Vec::new();
-        loop {
-            match self.next_token()? {
-                Some(ref token) if token.kind == Kind::RightBrace => break,
-                Some(token) => {
-                    let stmt = self.parse_stmt(token)?;
-                    self.assert_token(&Kind::Semi)?;
-                    block.push(stmt);
-                }
-                None => {
-                    bail!("unexpected EOF parsing block");
-                }
+        while let Some(token) = self.next_token()? {
+            if token.kind == Kind::RightBrace {
+                return Ok(block);
             }
+
+            block.push(self.parse_stmt(token)?);
+            self.assert_token(&Kind::Semi)?;
         }
 
-        Ok(block)
+        bail!("unexpected EOF parsing block");
     }
 
     fn parse_stmt(&mut self, token: Token) -> Result<Stmt> {
         let word = assert_word(token, "statement")?;
-        let stmt = if word.as_bytes() == b"if" {
-            Stmt::If(self.parse_if_stmt()?)
-        } else if word.as_bytes() == b"while" {
-            Stmt::While(self.parse_while_stmt()?)
-        } else if word.as_bytes() == b"export" {
-            Stmt::Export(self.parse_export_stmt()?)
-        } else {
-            self.parse_assignment_or_command(word)?
-        };
-        Ok(stmt)
+        Ok(match word.as_bytes() {
+            b"if" => Stmt::If(self.parse_if_stmt()?),
+            b"while" => Stmt::While(self.parse_while_stmt()?),
+            b"export" => Stmt::Export(self.parse_export_stmt()?),
+            _ => self.parse_assignment_or_command(word)?,
+        })
     }
 
     fn parse_if_stmt(&mut self) -> Result<IfStmt> {
