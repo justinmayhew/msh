@@ -8,12 +8,12 @@ use nix::errno::Errno;
 use nix::sys::wait::{self, WaitStatus};
 use nix::unistd::{self, ForkResult};
 
+use Result;
 use ast::Stmt;
 use command::{Command, Execv, ExpandedCommand};
 use cwd::Cwd;
 use environment::Environment;
 use status::Status;
-use {display_err, Result};
 
 pub struct Interpreter {
     cwd: Cwd,
@@ -61,13 +61,7 @@ impl Interpreter {
     }
 
     fn execute_command(&mut self, command: &Command) -> Result<Status> {
-        let command = match command.expand(&self.env) {
-            Ok(command) => command,
-            Err(e) => {
-                display_err(&e);
-                return Ok(Status::Failure);
-            }
-        };
+        let command = command.expand(&self.env)?;
 
         if command.name().as_bytes() == b"cd" {
             Ok(self.cwd.cd(self.env.home(), command.arguments()))

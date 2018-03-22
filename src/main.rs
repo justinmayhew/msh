@@ -39,18 +39,13 @@ use interpreter::Interpreter;
 
 type Result<T> = result::Result<T, failure::Error>;
 
-fn display_err(e: &failure::Error) {
-    let causes: Vec<String> = e.causes().map(|c| format!("{}", c)).collect();
-    display!("{}", causes.join(": "));
-}
-
 fn main() {
     env_logger::init();
 
     let code = match run() {
         Ok(()) => 0,
         Err(e) => {
-            display_err(&e);
+            print_error(&e);
             1
         }
     };
@@ -116,7 +111,9 @@ fn repl() -> Result<()> {
 
     while let Some(line) = history.readline(&format!("{} $ ", interpreter.cwd()))? {
         let statements = parser::parse(&line)?;
-        interpreter.execute(&statements)?;
+        if let Err(e) = interpreter.execute(&statements) {
+            print_error(&e);
+        }
     }
 
     Ok(())
@@ -134,4 +131,9 @@ fn print_usage_and_exit(opts: &Options, code: i32) -> ! {
         eprint!("{}", usage);
     }
     process::exit(code)
+}
+
+fn print_error(e: &failure::Error) {
+    let causes: Vec<_> = e.causes().map(ToString::to_string).collect();
+    display!("{}", causes.join(": "));
 }
