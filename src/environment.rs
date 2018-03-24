@@ -89,12 +89,11 @@ impl<'env> Iterator for IterExported<'env> {
     type Item = (&'env OsStr, &'env OsStr);
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.iter.next().and_then(|(name, var)| {
+        while let Some((name, var)) = self.iter.next() {
             if var.is_exported {
-                Some((name.as_ref(), var.value.as_ref()))
-            } else {
-                self.next()
+                return Some((name, &var.value));
             }
-        })
+        }
+        None
     }
 }
