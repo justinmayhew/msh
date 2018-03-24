@@ -2,6 +2,8 @@
 
 A simple Unix shell.
 
+[![Build Status](https://travis-ci.org/mayhewj/msh.svg?branch=master)](https://travis-ci.org/mayhewj/msh)
+
 ## Features
 
 - [x] Interactive REPL
