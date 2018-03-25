@@ -1,12 +1,16 @@
 use std::env;
 use std::ffi::CString;
+use std::mem;
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
+use std::os::unix::io::RawFd;
 use std::process;
 
+use failure::ResultExt;
+use libc;
 use nix::Error::Sys;
 use nix::errno::Errno;
 use nix::sys::wait::{self, WaitStatus};
-use nix::unistd::{self, ForkResult};
+use nix::unistd::{self, ForkResult, Pid};
 
 use Result;
 use ast::Stmt;
@@ -64,6 +68,9 @@ impl Interpreter {
         let command = command.expand(&self.env)?;
 
         if command.name().as_bytes() == b"cd" {
+            if command.pipeline().is_some() {
+                unimplemented!("builtin pipelines");
+            }
             Ok(self.cwd.cd(self.env.home(), command.arguments()))
         } else {
             execute(&command, &self.env)
@@ -71,43 +78,97 @@ impl Interpreter {
     }
 }
 
-fn execute(command: &ExpandedCommand, environment: &Environment) -> Result<Status> {
-    debug!("forking to execute {:?}", command);
+fn execute(cmd: &ExpandedCommand, env: &Environment) -> Result<Status> {
+    let (mut running_children, last_pid) = spawn_children(cmd, env)?;
+    let mut status = Status::Success;
 
-    match unistd::fork()? {
-        ForkResult::Parent { child } => loop {
-            match wait::waitpid(child, None) {
-                Ok(WaitStatus::Exited(_, code)) => {
-                    debug!("child exited with {} status code", code);
-                    return Ok(code.into());
-                }
-                Ok(status) => {
-                    debug!("waitpid: {:?}", status);
-                }
-                Err(Sys(Errno::ECHILD)) => {
-                    unimplemented!("child process was killed unexpectedly");
-                }
-                Err(e) => {
-                    panic!("waitpid: {}", e);
+    while running_children > 0 {
+        match wait::wait() {
+            Ok(WaitStatus::Exited(pid, code)) => {
+                debug!("child {} exited with {} status code", pid, code);
+                running_children -= 1;
+                if pid == last_pid {
+                    status = code.into();
                 }
             }
-        },
-        ForkResult::Child => {
-            match command.clone().into_execv(environment) {
-                Execv::Exact(path, argv, env) => execve(&path, &argv, &env),
-                Execv::Relative(name, argv, env) => {
-                    for mut path in env::split_paths(environment.path()) {
-                        path.push(&name);
-                        let path = CString::new(path.into_os_string().into_vec()).unwrap();
-                        execve(&path, &argv, &env);
-                    }
-                }
+            Ok(status) => {
+                debug!("wait: {:?}", status);
             }
-
-            display!("command not found: {}", command.name().to_string_lossy());
-            process::exit(1);
+            Err(Sys(Errno::ECHILD)) => {
+                unimplemented!("child process was killed unexpectedly");
+            }
+            Err(e) => {
+                panic!("wait: {}", e);
+            }
         }
     }
+
+    Ok(status)
+}
+
+fn spawn_children(cmd: &ExpandedCommand, env: &Environment) -> Result<(u16, Pid)> {
+    let mut count = 0;
+    let mut next_cmd = Some(cmd);
+    let mut next_stdin = None;
+
+    while let Some(cmd) = next_cmd {
+        count += 1;
+
+        let (stdin, stdout) = match cmd.pipeline() {
+            Some(next) => {
+                next_cmd = Some(next);
+                let (read, write) = unistd::pipe().context("failed creating pipe")?;
+                (mem::replace(&mut next_stdin, Some(read)), Some(write))
+            }
+            None => {
+                next_cmd = None;
+                (next_stdin, None)
+            }
+        };
+
+        debug!("forking to execute {:?}", cmd);
+        match unistd::fork().context("failed to fork")? {
+            ForkResult::Parent { child } => {
+                if let Some(fd) = stdin {
+                    unistd::close(fd).context("failed closing read end of pipe")?;
+                }
+                if let Some(fd) = stdout {
+                    unistd::close(fd).context("failed closing write end of pipe")?;
+                }
+                if next_cmd.is_none() {
+                    return Ok((count, child));
+                }
+            }
+            ForkResult::Child => execute_child(cmd, env, stdin, stdout),
+        }
+    }
+    unreachable!();
+}
+
+fn execute_child(
+    cmd: &ExpandedCommand,
+    environment: &Environment,
+    stdin: Option<RawFd>,
+    stdout: Option<RawFd>,
+) -> ! {
+    if let Some(fd) = stdin {
+        unistd::dup2(fd, libc::STDIN_FILENO).expect("replacing stdin failed");
+    }
+    if let Some(fd) = stdout {
+        unistd::dup2(fd, libc::STDOUT_FILENO).expect("replacing stdout failed");
+    }
+
+    match cmd.clone().into_execv(environment) {
+        Execv::Exact(path, argv, env) => execve(&path, &argv, &env),
+        Execv::Relative(name, argv, env) => for mut path in env::split_paths(environment.path()) {
+            path.push(&name);
+            let path = CString::new(path.into_os_string().into_vec()).unwrap();
+            execve(&path, &argv, &env);
+        },
+    }
+
+    display!("command not found: {}", cmd.name().to_string_lossy());
+    process::exit(1)
 }
 
 fn execve(path: &CString, argv: &[CString], env: &[CString]) {

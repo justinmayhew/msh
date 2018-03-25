@@ -15,5 +15,5 @@ A simple Unix shell.
 - [ ] Aliases
 - [ ] Startup configuration file
 - [x] Environment variable manipulation
-- [ ] Pipelines
+- [x] Pipelines
 - [ ] Standard stream redirection

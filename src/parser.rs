@@ -189,6 +189,10 @@ impl<'input> Parser<'input> {
             command.add_argument(argument);
         }
 
+        if self.match_token(&Kind::Pipe)? {
+            command.set_pipeline(self.parse_command(None)?);
+        }
+
         Ok(command)
     }
 }
@@ -351,6 +355,16 @@ if /bin/a {
                     ]),
                 )),
             ],
+        );
+    }
+
+    #[test]
+    fn pipeline() {
+        let mut cmd = Command::new("echo".into(), vec!["Hello".into(), "world".into()]);
+        cmd.set_pipeline(Command::new("rg".into(), vec!["world".into()]));
+        assert_eq!(
+            parse(b"echo Hello world | rg world\n").unwrap(),
+            vec![Stmt::Command(cmd)],
         );
     }
 }

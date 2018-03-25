@@ -14,9 +14,10 @@ Exportable = Name | NameValuePair ;
 
 Assignment = NameValuePair { NameValuePair } ;
 
-Command = [ Assignment ] CommandName { Argument } ;
+Command = [ Assignment ] CommandName { Argument } [ Pipeline ] ;
 CommandName = Word ;
 Argument = Word ;
+Pipeline = "|" Command ;
 
 Word = /* TBD */ ;
 Name = /* TBD */ ;

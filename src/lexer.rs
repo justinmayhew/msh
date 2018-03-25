@@ -117,6 +117,9 @@ impl<'input> Iterator for Lexer<'input> {
                     };
                     return self.emit(kind, None);
                 }
+                if byte == b'|' {
+                    return self.emit(Kind::Pipe, None);
+                }
             }
 
             if is_line_terminator(byte) {
@@ -182,6 +185,7 @@ pub enum Kind {
     Word(Word),
     LeftBrace,
     RightBrace,
+    Pipe,
     Semi,
 }
 
@@ -191,6 +195,7 @@ impl fmt::Display for Kind {
             Kind::Word(ref word) => word.to_string(),
             Kind::LeftBrace => "{".into(),
             Kind::RightBrace => "}".into(),
+            Kind::Pipe => "|".into(),
             Kind::Semi => ";".into(),
         };
 
@@ -336,6 +341,23 @@ mod tests {
                 Token::new(Kind::Semi, 10),
                 Token::new(Kind::RightBrace, 11),
                 Token::new(Kind::Semi, 11),
+            ],
+        );
+    }
+
+    #[test]
+    fn pipeline() {
+        let tokens: Vec<Kind> = Lexer::new(b"echo foo | cat\n")
+            .map(|t| t.unwrap().kind)
+            .collect();
+        assert_eq!(
+            tokens,
+            vec![
+                Kind::Word("echo".into()),
+                Kind::Word("foo".into()),
+                Kind::Pipe,
+                Kind::Word("cat".into()),
+                Kind::Semi,
             ],
         );
     }

@@ -11,6 +11,7 @@ pub struct Command {
     name: Word,
     arguments: Vec<Word>,
     env: Vec<NameValuePair>,
+    pipeline: Option<Box<Command>>,
 }
 
 impl Command {
@@ -20,6 +21,7 @@ impl Command {
             name,
             arguments,
             env: Vec::new(),
+            pipeline: None,
         }
     }
 
@@ -28,6 +30,7 @@ impl Command {
             name,
             arguments: Vec::new(),
             env: Vec::new(),
+            pipeline: None,
         }
     }
 
@@ -37,6 +40,10 @@ impl Command {
 
     pub fn set_env(&mut self, env: Vec<NameValuePair>) {
         self.env = env;
+    }
+
+    pub fn set_pipeline(&mut self, pipeline: Command) {
+        self.pipeline = Some(Box::new(pipeline));
     }
 
     pub fn expand(&self, environment: &Environment) -> Result<ExpandedCommand> {
@@ -56,6 +63,10 @@ impl Command {
             name,
             arguments,
             env,
+            pipeline: match self.pipeline {
+                Some(ref cmd) => Some(Box::new(cmd.expand(environment)?)),
+                None => None,
+            },
         })
     }
 }
@@ -65,6 +76,7 @@ pub struct ExpandedCommand {
     name: OsString,
     arguments: Vec<OsString>,
     env: Vec<(OsString, OsString)>,
+    pipeline: Option<Box<ExpandedCommand>>,
 }
 
 impl ExpandedCommand {
@@ -95,6 +107,10 @@ impl ExpandedCommand {
 
     pub fn arguments(&self) -> &[OsString] {
         &self.arguments
+    }
+
+    pub fn pipeline(&self) -> Option<&ExpandedCommand> {
+        self.pipeline.as_ref().map(AsRef::as_ref)
     }
 }
 
