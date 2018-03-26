@@ -137,19 +137,13 @@ impl<'input> Parser<'input> {
 
     fn parse_export_stmt(&mut self) -> Result<Vec<Exportable>> {
         let mut exports = Vec::new();
-
-        while let Some(token) = self.next_token()? {
-            if let Kind::Word(word) = token.kind {
-                if let Some(pair) = word.parse_name_value_pair() {
-                    exports.push(Exportable::new(pair.name, Some(pair.value)));
-                } else if word.is_valid_name() {
-                    exports.push(Exportable::new(word, None));
-                } else {
-                    bail!("not a valid name: {}", word);
-                }
+        while let Some(word) = self.match_word()? {
+            if let Some(pair) = word.parse_name_value_pair() {
+                exports.push(Exportable::new(pair.name, Some(pair.value)));
+            } else if word.is_valid_name() {
+                exports.push(Exportable::new(word, None));
             } else {
-                self.push_token(token);
-                break;
+                bail!("not a valid name: {}", word);
             }
         }
 
