@@ -31,6 +31,7 @@ use std::io;
 use std::process;
 use std::result;
 
+use env_logger::Builder;
 use failure::ResultExt;
 use getopts::Options;
 
@@ -40,7 +41,10 @@ use interpreter::Interpreter;
 type Result<T> = result::Result<T, failure::Error>;
 
 fn main() {
-    env_logger::init();
+    Builder::from_default_env()
+        .default_format_timestamp(false)
+        .default_format_module_path(false)
+        .init();
 
     let code = match run() {
         Ok(()) => 0,
