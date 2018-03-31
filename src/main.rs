@@ -1,5 +1,6 @@
 #![feature(nll, transpose_result)]
 
+extern crate atty;
 extern crate env_logger;
 #[macro_use]
 extern crate failure;
@@ -31,6 +32,7 @@ use std::io;
 use std::process;
 use std::result;
 
+use atty::Stream;
 use env_logger::Builder;
 use failure::ResultExt;
 use getopts::Options;
@@ -81,7 +83,7 @@ fn run() -> Result<()> {
     }
 
     match matches.free.len() {
-        0 => if stdin_isatty() {
+        0 => if atty::is(Stream::Stdin) {
             repl()
         } else {
             execute(io::stdin())
@@ -121,10 +123,6 @@ fn repl() -> Result<()> {
     }
 
     Ok(())
-}
-
-fn stdin_isatty() -> bool {
-    unsafe { libc::isatty(libc::STDIN_FILENO) == 1 }
 }
 
 fn print_usage_and_exit(opts: &Options, code: i32) -> ! {

@@ -4,6 +4,7 @@ version = "0.1.0"
 authors = ["Justin Mayhew <mayhew@live.ca>"]
 
 [dependencies]
+atty = "0.2"
 env_logger = "0.5"
 failure = "0.1"
 getopts = "0.2"
