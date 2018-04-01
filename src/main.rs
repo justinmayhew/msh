@@ -108,12 +108,12 @@ fn execute<R: io::Read>(mut reader: R) -> Result<()> {
     reader.read_to_end(&mut src)?;
 
     let program = parser::parse(&src)?;
-    Interpreter::new().execute(&program)
+    Interpreter::new()?.execute(&program)
 }
 
 fn repl() -> Result<()> {
     let history = History::new()?;
-    let mut interpreter = Interpreter::new();
+    let mut interpreter = Interpreter::new()?;
 
     while let Some(line) = history.readline(&format!("{} $ ", interpreter.cwd()))? {
         let statements = parser::parse(&line)?;

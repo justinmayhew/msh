@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::env;
 use std::ffi::CString;
 use std::mem;
@@ -5,11 +6,11 @@ use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::os::unix::io::RawFd;
 use std::process;
 
-use failure::ResultExt;
 use libc;
 use nix::Error::Sys;
 use nix::errno::Errno;
-use nix::sys::wait::{self, WaitStatus};
+use nix::sys::signal::{self, SaFlags, SigAction, SigHandler, SigSet, SigmaskHow, Signal};
+use nix::sys::wait::{self, WaitPidFlag, WaitStatus};
 use nix::unistd::{self, ForkResult, Pid};
 
 use Result;
@@ -19,17 +20,30 @@ use cwd::Cwd;
 use environment::Environment;
 use status::Status;
 
+extern "C" fn nothing(_: libc::c_int) {}
+
 pub struct Interpreter {
     cwd: Cwd,
     env: Environment,
 }
 
 impl Interpreter {
-    pub fn new() -> Self {
-        Self {
+    pub fn new() -> Result<Self> {
+        // Set a signal handler for SIGCHLD so that it's not considered ignored.
+        // sigwait(2) won't emit notifications for ignored signals on macOS.
+        let action = SigAction::new(
+            SigHandler::Handler(nothing),
+            SaFlags::empty(),
+            SigSet::empty(),
+        );
+        unsafe {
+            signal::sigaction(Signal::SIGCHLD, &action)?;
+        }
+
+        Ok(Self {
             cwd: Cwd::new(),
             env: Environment::new(),
-        }
+        })
     }
 
     pub fn execute(&mut self, block: &[Stmt]) -> Result<()> {
@@ -73,51 +87,73 @@ impl Interpreter {
             }
             Ok(self.cwd.cd(self.env.home(), command.arguments()))
         } else {
-            execute(&command, &self.env)
+            Ok(execute(&command, &self.env))
         }
     }
 }
 
-fn execute(cmd: &ExpandedCommand, env: &Environment) -> Result<Status> {
-    let (mut running_children, last_pid) = spawn_children(cmd, env)?;
+fn execute(cmd: &ExpandedCommand, env: &Environment) -> Status {
+    let (mut pids, last_pid) = spawn_children(cmd, env);
+
+    let mut sigset = SigSet::empty();
+    sigset.add(Signal::SIGINT);
+    sigset.add(Signal::SIGCHLD);
+
+    signal::sigprocmask(SigmaskHow::SIG_BLOCK, Some(&sigset), None)
+        .expect("failed blocking signals");
+
     let mut status = Status::Success;
-
-    while running_children > 0 {
-        match wait::wait() {
-            Ok(WaitStatus::Exited(pid, code)) => {
-                debug!("child {} exited with {} status code", pid, code);
-                running_children -= 1;
-                if pid == last_pid {
-                    status = code.into();
+    'outer: loop {
+        match sigset.wait().expect("failed waiting for signal") {
+            Signal::SIGINT => for pid in &pids {
+                if let Err(e) = signal::kill(*pid, Signal::SIGINT) {
+                    error!("SIGINT PID {}: {}", pid, e);
                 }
-            }
-            Ok(status) => {
-                debug!("wait: {:?}", status);
-            }
-            Err(Sys(Errno::ECHILD)) => {
-                unimplemented!("child process was killed unexpectedly");
-            }
-            Err(e) => {
-                panic!("wait: {}", e);
-            }
+            },
+            Signal::SIGCHLD => loop {
+                match wait::waitpid(None, Some(WaitPidFlag::WNOHANG)) {
+                    Ok(WaitStatus::Exited(pid, code)) => {
+                        debug!("PID {} returned {}", pid, code);
+                        assert!(pids.remove(&pid));
+                        if pid == last_pid {
+                            status = code.into();
+                        }
+                    }
+                    Ok(WaitStatus::Signaled(pid, signal, _)) => {
+                        debug!("PID {} received {:?}", pid, signal);
+                        assert!(pids.remove(&pid));
+                        if pid == last_pid {
+                            status = Status::Failure;
+                        }
+                    }
+                    Ok(WaitStatus::StillAlive) => break,
+                    Ok(status) => debug!("wait: {:?}", status),
+                    Err(Sys(Errno::ECHILD)) => break 'outer,
+                    Err(e) => panic!("wait: {}", e),
+                }
+            },
+            signal => panic!("received unexpected {:?}", signal),
         }
     }
 
-    Ok(status)
+    assert!(pids.is_empty());
+
+    signal::sigprocmask(SigmaskHow::SIG_UNBLOCK, Some(&sigset), None)
+        .expect("failed unblocking signals");
+
+    status
 }
 
-fn spawn_children(cmd: &ExpandedCommand, env: &Environment) -> Result<(u16, Pid)> {
-    let mut count = 0;
+fn spawn_children(cmd: &ExpandedCommand, env: &Environment) -> (HashSet<Pid>, Pid) {
+    let mut pids = HashSet::new();
     let mut next_cmd = Some(cmd);
     let mut next_stdin = None;
 
     while let Some(cmd) = next_cmd {
-        count += 1;
-
         let (stdin, stdout) = match cmd.pipeline() {
             Some(next) => {
                 next_cmd = Some(next);
-                let (read, write) = unistd::pipe().context("failed creating pipe")?;
+                let (read, write) = unistd::pipe().expect("failed creating pipe");
                 (mem::replace(&mut next_stdin, Some(read)), Some(write))
             }
             None => {
@@ -126,17 +162,17 @@ fn spawn_children(cmd: &ExpandedCommand, env: &Environment) -> Result<(u16, Pid)
             }
         };
 
-        debug!("forking to execute {:?}", cmd);
-        match unistd::fork().context("failed to fork")? {
+        match unistd::fork().expect("failed to fork") {
             ForkResult::Parent { child } => {
+                pids.insert(child);
                 if let Some(fd) = stdin {
-                    unistd::close(fd).context("failed closing read end of pipe")?;
+                    unistd::close(fd).expect("failed closing read end of pipe");
                 }
                 if let Some(fd) = stdout {
-                    unistd::close(fd).context("failed closing write end of pipe")?;
+                    unistd::close(fd).expect("failed closing write end of pipe");
                 }
                 if next_cmd.is_none() {
-                    return Ok((count, child));
+                    return (pids, child);
                 }
             }
             ForkResult::Child => execute_child(cmd, env, stdin, stdout),
@@ -172,7 +208,6 @@ fn execute_child(
 }
 
 fn execve(path: &CString, argv: &[CString], env: &[CString]) {
-    debug!("[child] execve {:?} {:?}", path, argv);
     match unistd::execve(path, argv, env) {
         Ok(_) => unreachable!(),
         Err(Sys(Errno::ENOENT)) => {}
