@@ -104,12 +104,9 @@ fn execute(cmd: &ExpandedCommand, env: &Environment) -> Status {
 
     let mut status = Status::Success;
     'outer: loop {
-        match sigset.wait().expect("failed waiting for signal") {
-            Signal::SIGINT => for pid in &pids {
-                if let Err(e) = signal::kill(*pid, Signal::SIGINT) {
-                    error!("SIGINT PID {}: {}", pid, e);
-                }
-            },
+        let signal = sigset.wait().expect("failed waiting for signal");
+        match signal {
+            Signal::SIGINT => debug!("ignoring {:?}", signal),
             Signal::SIGCHLD => loop {
                 match wait::waitpid(None, Some(WaitPidFlag::WNOHANG)) {
                     Ok(WaitStatus::Exited(pid, code)) => {
