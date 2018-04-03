@@ -97,6 +97,7 @@ fn execute(cmd: &ExpandedCommand, env: &Environment) -> Status {
 
     let mut sigset = SigSet::empty();
     sigset.add(Signal::SIGINT);
+    sigset.add(Signal::SIGQUIT);
     sigset.add(Signal::SIGCHLD);
 
     signal::sigprocmask(SigmaskHow::SIG_BLOCK, Some(&sigset), None)
@@ -106,7 +107,7 @@ fn execute(cmd: &ExpandedCommand, env: &Environment) -> Status {
     'outer: loop {
         let signal = sigset.wait().expect("failed waiting for signal");
         match signal {
-            Signal::SIGINT => debug!("ignoring {:?}", signal),
+            Signal::SIGINT | Signal::SIGQUIT => debug!("ignoring {:?}", signal),
             Signal::SIGCHLD => loop {
                 match wait::waitpid(None, Some(WaitPidFlag::WNOHANG)) {
                     Ok(WaitStatus::Exited(pid, code)) => {
