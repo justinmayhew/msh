@@ -116,8 +116,7 @@ fn repl() -> Result<()> {
     let mut interpreter = Interpreter::new()?;
 
     while let Some(line) = history.readline(&format!("{} $ ", interpreter.cwd()))? {
-        let statements = parser::parse(&line)?;
-        if let Err(e) = interpreter.execute(&statements) {
+        if let Err(e) = parser::parse(&line).and_then(|stmts| interpreter.execute(&stmts)) {
             print_error(&e);
         }
     }
