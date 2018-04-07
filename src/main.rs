@@ -1,5 +1,3 @@
-#![feature(nll, transpose_result)]
-
 extern crate atty;
 extern crate env_logger;
 #[macro_use]

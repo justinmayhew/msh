@@ -37,10 +37,8 @@ impl Environment {
 
     pub fn export(&mut self, exportable: &Exportable) -> Result<()> {
         if let Some(ref value) = exportable.value {
-            self.values.insert(
-                exportable.name.to_os_string(),
-                Var::new(value.expand(self)?, true),
-            );
+            let var = Var::new(value.expand(self)?, true);
+            self.values.insert(exportable.name.to_os_string(), var);
         } else {
             match self.values.entry(exportable.name.to_os_string()) {
                 Entry::Occupied(mut entry) => entry.get_mut().is_exported = true,

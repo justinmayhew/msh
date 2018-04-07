@@ -34,7 +34,11 @@ impl<'input> Parser<'input> {
     fn next_token(&mut self) -> Result<Option<Token>> {
         match self.peek.take() {
             Some(token) => Ok(Some(token)),
-            None => self.lexer.next().transpose(),
+            None => match self.lexer.next() {
+                Some(Ok(token)) => Ok(Some(token)),
+                Some(Err(e)) => Err(e),
+                None => Ok(None),
+            },
         }
     }
 
