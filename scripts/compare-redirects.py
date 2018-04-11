@@ -63,6 +63,6 @@ def main(sh1, sh2):
 if __name__ == "__main__":
     if len(sys.argv) != 3:
         print(f"Usage: {sys.argv[0]} <sh1> <sh2>", file=sys.stderr)
-        exit(1)
+        sys.exit(1)
 
     sys.exit(main(sys.argv[1], sys.argv[2]))
