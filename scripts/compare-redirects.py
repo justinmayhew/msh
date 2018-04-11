@@ -41,6 +41,7 @@ def main(sh1, sh2):
         "echo i >file; cat <file",
         "echo j >file; cat <file >&2",
         "echo k >foo >bar >baz",
+        "echo l >file | cat",
     )
 
     sh1_prog = os.path.basename(sh1)

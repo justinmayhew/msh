@@ -16,4 +16,4 @@ A simple Unix shell.
 - [ ] Startup configuration file
 - [x] Environment variable manipulation
 - [x] Pipelines
-- [ ] Standard stream redirection
+- [x] Standard stream redirection

@@ -1,11 +1,13 @@
 use std::collections::HashSet;
 use std::env;
 use std::ffi::CString;
+use std::fs::File;
 use std::mem;
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
-use std::os::unix::io::RawFd;
+use std::os::unix::io::{AsRawFd, RawFd};
 use std::process;
 
+use failure::ResultExt;
 use libc;
 use nix::Error::Sys;
 use nix::errno::Errno;
@@ -13,12 +15,13 @@ use nix::sys::signal::{self, SaFlags, SigAction, SigHandler, SigSet, SigmaskHow,
 use nix::sys::wait::{self, WaitPidFlag, WaitStatus};
 use nix::unistd::{self, ForkResult, Pid};
 
-use Result;
 use ast::Stmt;
 use command::{Command, Execv, ExpandedCommand};
 use cwd::Cwd;
 use environment::Environment;
+use redirect::Redirect;
 use status::Status;
+use {print_error, Result};
 
 extern "C" fn nothing(_: libc::c_int) {}
 
@@ -173,7 +176,12 @@ fn spawn_children(cmd: &ExpandedCommand, env: &Environment) -> (HashSet<Pid>, Pi
                     return (pids, child);
                 }
             }
-            ForkResult::Child => execute_child(cmd, env, stdin, stdout),
+            ForkResult::Child => {
+                if let Err(e) = execute_child(cmd, env, stdin, stdout) {
+                    print_error(&e);
+                }
+                process::exit(1);
+            }
         }
     }
     unreachable!();
@@ -184,12 +192,35 @@ fn execute_child(
     environment: &Environment,
     stdin: Option<RawFd>,
     stdout: Option<RawFd>,
-) -> ! {
+) -> Result<()> {
     if let Some(fd) = stdin {
-        unistd::dup2(fd, libc::STDIN_FILENO).expect("replacing stdin failed");
+        unistd::dup2(fd, libc::STDIN_FILENO)?;
     }
     if let Some(fd) = stdout {
-        unistd::dup2(fd, libc::STDOUT_FILENO).expect("replacing stdout failed");
+        unistd::dup2(fd, libc::STDOUT_FILENO)?;
+    }
+
+    for redirect in cmd.redirects() {
+        match *redirect {
+            Redirect::InFile(ref path) => {
+                let file = File::open(path).with_context(|_| path.display().to_string())?;
+                unistd::dup2(file.as_raw_fd(), libc::STDIN_FILENO)?;
+            }
+            Redirect::OutErr => {
+                unistd::dup2(libc::STDERR_FILENO, libc::STDOUT_FILENO)?;
+            }
+            Redirect::OutFile(ref path, mode) => {
+                let file = mode.open(path)?;
+                unistd::dup2(file.as_raw_fd(), libc::STDOUT_FILENO)?;
+            }
+            Redirect::ErrOut => {
+                unistd::dup2(libc::STDOUT_FILENO, libc::STDERR_FILENO)?;
+            }
+            Redirect::ErrFile(ref path, mode) => {
+                let file = mode.open(path)?;
+                unistd::dup2(file.as_raw_fd(), libc::STDERR_FILENO)?;
+            }
+        }
     }
 
     match cmd.clone().into_execv(environment) {

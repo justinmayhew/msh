@@ -183,12 +183,19 @@ impl<'input> Parser<'input> {
         };
         let mut command = Command::from_name(name);
 
-        while let Some(argument) = self.match_word()? {
-            command.add_argument(argument);
-        }
-
-        if self.match_token(&Kind::Pipe)? {
-            command.set_pipeline(self.parse_command(None)?);
+        while let Some(token) = self.next_token()? {
+            match token.kind {
+                Kind::Word(arg) => command.add_argument(arg),
+                Kind::Redirect(redirect) => command.add_redirect(redirect),
+                Kind::Pipe => {
+                    command.set_pipeline(self.parse_command(None)?);
+                    break;
+                }
+                _ => {
+                    self.push_token(token);
+                    break;
+                }
+            }
         }
 
         Ok(command)

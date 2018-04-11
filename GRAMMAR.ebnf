@@ -14,9 +14,13 @@ Exportable = Name | NameValuePair ;
 
 Assignment = NameValuePair { NameValuePair } ;
 
-Command = [ Assignment ] CommandName { Argument } [ Pipeline ] ;
+Command = [ Assignment ] CommandName { Argument | Redirect } [ Pipeline ] ;
 CommandName = Word ;
 Argument = Word ;
+Redirect = InRedirect | OutRedirect | ErrRedirect ;
+InRedirect = [ "0" ] "<" Word ;
+OutRedirect = [ "1" ] ">" ( ">" Word | ( "&2" | Word ) ) ;
+ErrRedirect = "2>" ( ">" Word | ( "&1" | Word ) ) ;
 Pipeline = "|" Command ;
 
 Word = /* TBD */ ;

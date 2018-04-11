@@ -21,6 +21,7 @@ mod history;
 mod interpreter;
 mod lexer;
 mod parser;
+mod redirect;
 mod status;
 mod word;
 
