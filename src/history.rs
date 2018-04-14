@@ -14,7 +14,11 @@ pub struct History {
 
 impl History {
     pub fn new() -> Result<Self> {
-        let history_path = env::home_dir().expect("HOME required").join(".msh_history");
+        let history_path = env::home_dir().expect("HOME required").join(concat!(
+            ".",
+            env!("CARGO_PKG_NAME"),
+            "_history",
+        ));
         let path = CString::new(history_path.as_os_str().as_bytes())?;
 
         if let Err(e) = OpenOptions::new()
