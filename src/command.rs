@@ -1,6 +1,6 @@
-use std::ffi::{CString, OsStr, OsString};
-use std::os::unix::ffi::{OsStrExt, OsStringExt};
-use std::path::PathBuf;
+use std::borrow::Cow;
+use std::ffi::{CString, OsStr};
+use std::os::unix::ffi::OsStrExt;
 
 use Result;
 use ast::NameValuePair;
@@ -59,23 +59,24 @@ impl Command {
         let mut redirects = Vec::new();
         for redirect in &self.redirects {
             redirects.push(match *redirect {
-                Redirect::InFile(ref path) => {
-                    Redirect::InFile(PathBuf::from(path.expand(environment)?))
-                }
+                Redirect::InFile(ref path) => Redirect::InFile(path.expand(environment)?),
                 Redirect::OutErr => Redirect::OutErr,
                 Redirect::OutFile(ref path, mode) => {
-                    Redirect::OutFile(PathBuf::from(path.expand(environment)?), mode)
+                    Redirect::OutFile(path.expand(environment)?, mode)
                 }
                 Redirect::ErrOut => Redirect::ErrOut,
                 Redirect::ErrFile(ref path, mode) => {
-                    Redirect::ErrFile(PathBuf::from(path.expand(environment)?), mode)
+                    Redirect::ErrFile(path.expand(environment)?, mode)
                 }
             });
         }
 
         let mut env = Vec::new();
         for pair in &self.env {
-            env.push((pair.name.to_os_string(), pair.value.expand(environment)?));
+            env.push((
+                Cow::Borrowed(pair.name.value.as_ref()),
+                pair.value.expand(environment)?,
+            ));
         }
 
         Ok(ExpandedCommand {
@@ -92,31 +93,32 @@ impl Command {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct ExpandedCommand {
-    name: OsString,
-    arguments: Vec<OsString>,
-    redirects: Vec<Redirect<PathBuf>>,
-    env: Vec<(OsString, OsString)>,
-    pipeline: Option<Box<ExpandedCommand>>,
+pub struct ExpandedCommand<'a> {
+    name: Cow<'a, OsStr>,
+    arguments: Vec<Cow<'a, OsStr>>,
+    redirects: Vec<Redirect<Cow<'a, OsStr>>>,
+    env: Vec<(Cow<'a, OsStr>, Cow<'a, OsStr>)>,
+    pipeline: Option<Box<ExpandedCommand<'a>>>,
 }
 
-impl ExpandedCommand {
-    pub fn into_execv(mut self, environment: &Environment) -> Execv {
+impl<'a> ExpandedCommand<'a> {
+    pub fn into_execv(mut self, environment: &Environment) -> Execv<'a> {
         self.arguments.insert(0, self.name.clone());
 
         let arguments = self.arguments
             .iter()
-            .map(|argument| CString::new(argument.clone().into_vec()).unwrap())
+            .map(|argument| CString::new(argument.clone().as_bytes()).unwrap())
             .collect();
 
-        let mut env: Vec<_> = environment
-            .iter_exported()
-            .map(|(name, value)| pair_to_execv((name.to_owned(), value.to_owned())))
-            .collect();
-        env.extend(self.env.into_iter().map(pair_to_execv));
+        let mut env: Vec<_> = environment.iter_exported().map(pair_to_execv).collect();
+        env.extend(
+            self.env
+                .into_iter()
+                .map(|(name, value)| pair_to_execv((&name, &value))),
+        );
 
         if self.name.as_bytes().contains(&b'/') {
-            Execv::Exact(CString::new(self.name.into_vec()).unwrap(), arguments, env)
+            Execv::Exact(CString::new(self.name.as_bytes()).unwrap(), arguments, env)
         } else {
             Execv::Relative(self.name, arguments, env)
         }
@@ -126,11 +128,11 @@ impl ExpandedCommand {
         &self.name
     }
 
-    pub fn arguments(&self) -> &[OsString] {
+    pub fn arguments(&self) -> &[Cow<OsStr>] {
         &self.arguments
     }
 
-    pub fn redirects(&self) -> &[Redirect<PathBuf>] {
+    pub fn redirects(&self) -> &[Redirect<Cow<OsStr>>] {
         &self.redirects
     }
 
@@ -139,13 +141,15 @@ impl ExpandedCommand {
     }
 }
 
-pub enum Execv {
+pub enum Execv<'a> {
     Exact(CString, Vec<CString>, Vec<CString>),
-    Relative(OsString, Vec<CString>, Vec<CString>),
+    Relative(Cow<'a, OsStr>, Vec<CString>, Vec<CString>),
 }
 
-fn pair_to_execv((mut name, value): (OsString, OsString)) -> CString {
-    name.push("=");
-    name.push(value);
-    CString::new(name.as_bytes()).unwrap()
+fn pair_to_execv((name, value): (&OsStr, &OsStr)) -> CString {
+    let mut buf = Vec::with_capacity(name.len() + value.len() + 2);
+    buf.extend_from_slice(name.as_bytes());
+    buf.push(b'=');
+    buf.extend_from_slice(value.as_bytes());
+    CString::new(buf).unwrap()
 }

@@ -221,7 +221,7 @@ fn execute_child(
     for redirect in cmd.redirects() {
         match *redirect {
             Redirect::InFile(ref path) => {
-                let file = File::open(path).with_context(|_| path.display().to_string())?;
+                let file = File::open(path).with_context(|_| path.to_string_lossy().into_owned())?;
                 unistd::dup2(file.as_raw_fd(), libc::STDIN_FILENO)?;
             }
             Redirect::OutErr => {

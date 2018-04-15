@@ -25,7 +25,7 @@ impl Environment {
     }
 
     pub fn assign(&mut self, pair: &NameValuePair) -> Result<()> {
-        let value = pair.value.expand(self)?;
+        let value = pair.value.expand(self)?.into_owned();
         match self.values.entry(pair.name.to_os_string()) {
             Entry::Occupied(mut entry) => entry.get_mut().value = value,
             Entry::Vacant(entry) => {
@@ -37,7 +37,7 @@ impl Environment {
 
     pub fn export(&mut self, exportable: &Exportable) -> Result<()> {
         if let Some(ref value) = exportable.value {
-            let var = Var::new(value.expand(self)?, true);
+            let var = Var::new(value.expand(self)?.into_owned(), true);
             self.values.insert(exportable.name.to_os_string(), var);
         } else {
             match self.values.entry(exportable.name.to_os_string()) {

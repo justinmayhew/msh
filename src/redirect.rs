@@ -35,7 +35,7 @@ pub enum WriteMode {
 }
 
 impl WriteMode {
-    pub fn open(&self, path: &Path) -> Result<File> {
+    pub fn open<P: AsRef<Path>>(&self, path: P) -> Result<File> {
         let mut file = OpenOptions::new();
         file.write(true).create(true);
 
@@ -48,6 +48,7 @@ impl WriteMode {
             }
         }
 
+        let path = path.as_ref();
         Ok(file.open(path)
             .with_context(|_| path.display().to_string())?)
     }

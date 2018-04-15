@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::ffi::{CStr, CString, OsStr, OsString};
 use std::fmt;
 use std::iter::Cloned;
@@ -72,15 +73,13 @@ impl Word {
         ))
     }
 
-    pub fn expand(&self, env: &Environment) -> Result<OsString> {
-        let word = self.as_bytes();
-
+    pub fn expand(&self, env: &Environment) -> Result<Cow<OsStr>> {
         match self.quote {
-            Some(Quote::Single) => Ok(OsString::from_vec(word.to_vec())),
-            Some(Quote::Double) => expand_env_vars(word, env),
+            Some(Quote::Single) => Ok(Cow::Borrowed(&self.value)),
+            Some(Quote::Double) => expand_env_vars(Cow::Borrowed(&self.value), env),
             None => {
-                let word = expand_tilde(word, env.home());
-                expand_env_vars(word.as_bytes(), env)
+                let word = expand_tilde(&self.value, env.home());
+                expand_env_vars(word, env)
             }
         }
     }
@@ -148,24 +147,25 @@ fn home_directory(username: &[u8]) -> Option<OsString> {
     Some(OsString::from_vec(c_str.to_bytes().to_vec()))
 }
 
-fn expand_tilde<H: AsRef<OsStr>>(word: &[u8], home: H) -> OsString {
-    if !word.starts_with(b"~") {
+fn expand_tilde<H: AsRef<OsStr>>(word: &OsStr, home: H) -> Cow<OsStr> {
+    let buf = word.as_bytes();
+    if !buf.starts_with(b"~") {
         // No expansion necessary.
-        return OsString::from_vec(word.into());
+        return Cow::Borrowed(word);
     }
-    let no_tilde = &word[1..];
+    let no_tilde = &buf[1..];
 
     let home = home.as_ref();
     if no_tilde.is_empty() {
         // ~
-        return home.into();
+        return Cow::Owned(home.into());
     }
 
     if no_tilde.starts_with(b"/") {
         // ~/file
         let mut path = home.to_owned();
         path.push(OsStr::from_bytes(no_tilde));
-        return path;
+        return Cow::Owned(path);
     }
 
     // ~username[/rest]
@@ -179,18 +179,18 @@ fn expand_tilde<H: AsRef<OsStr>>(word: &[u8], home: H) -> OsString {
             if let Some(rest) = rest {
                 path.push(OsStr::from_bytes(rest));
             }
-            path
+            Cow::Owned(path)
         })
         .unwrap_or_else(|| {
             // User doesn't have a home directory. Return the word as-is.
-            OsString::from_vec(word.into())
+            Cow::Borrowed(word)
         })
 }
 
-fn expand_env_vars(word: &[u8], env: &Environment) -> Result<OsString> {
-    match word.iter().position(|&b| b == b'$') {
-        Some(pos) => EnvExpander::new(word, pos, env).expand(),
-        None => Ok(OsString::from_vec(word.to_vec())),
+fn expand_env_vars<'a>(word: Cow<'a, OsStr>, env: &Environment) -> Result<Cow<'a, OsStr>> {
+    match word.as_bytes().iter().position(|&b| b == b'$') {
+        Some(pos) => EnvExpander::new(word.as_bytes(), pos, env).expand(),
+        None => Ok(word),
     }
 }
 
@@ -211,7 +211,7 @@ impl<'a> EnvExpander<'a> {
         }
     }
 
-    fn expand(mut self) -> Result<OsString> {
+    fn expand<'word>(mut self) -> Result<Cow<'word, OsStr>> {
         // The starting position is the byte after the first $.
         self.expand_variable()?;
 
@@ -222,7 +222,7 @@ impl<'a> EnvExpander<'a> {
                 self.buf.push(byte);
             }
         }
-        Ok(OsString::from_vec(self.buf))
+        Ok(Cow::Owned(OsString::from_vec(self.buf)))
     }
 
     fn next_byte(&mut self) -> Option<u8> {

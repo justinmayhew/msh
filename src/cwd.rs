@@ -1,6 +1,8 @@
+use std::borrow::Cow;
 use std::env;
-use std::ffi::OsString;
+use std::ffi::OsStr;
 use std::mem;
+use std::ops::Deref;
 use std::path::{Path, PathBuf};
 
 use status::Status;
@@ -22,7 +24,7 @@ impl Cwd {
         &self.path
     }
 
-    pub fn cd(&mut self, home: &Path, argv: &[OsString]) -> Status {
+    pub fn cd(&mut self, home: &Path, argv: &[Cow<OsStr>]) -> Status {
         if argv.len() > 1 {
             display!("cd: too many arguments");
             return Status::Failure;
@@ -30,10 +32,10 @@ impl Cwd {
 
         let path = match argv.first() {
             Some(path) => {
-                if path == "-" {
+                if path.deref() == "-" {
                     self.last.as_ref().unwrap_or(&self.path).clone()
                 } else {
-                    PathBuf::from(path)
+                    PathBuf::from(path.clone().into_owned())
                 }
             }
             None => PathBuf::from(home),
