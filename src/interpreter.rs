@@ -84,13 +84,31 @@ impl Interpreter {
     fn execute_command(&mut self, command: &Command) -> Result<Status> {
         let command = command.expand(&self.env)?;
 
-        if command.name().as_bytes() == b"cd" {
-            if command.pipeline().is_some() {
-                unimplemented!("builtin pipelines");
+        match command.name().as_bytes() {
+            b"cd" => {
+                if command.pipeline().is_some() {
+                    unimplemented!("builtin pipelines");
+                }
+                Ok(self.cwd.cd(self.env.home(), command.arguments()))
             }
-            Ok(self.cwd.cd(self.env.home(), command.arguments()))
-        } else {
-            Ok(execute(&command, &self.env))
+            b"exit" => {
+                if command.arguments().len() > 1 {
+                    display!("exit: too many arguments");
+                    return Ok(Status::Failure);
+                }
+
+                let code = match command.arguments().first() {
+                    Some(arg) => arg.to_str()
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or_else(|| {
+                            display!("exit: numeric argument required");
+                            2
+                        }),
+                    None => 0,
+                };
+                process::exit(code);
+            }
+            _ => Ok(execute(&command, &self.env)),
         }
     }
 }
