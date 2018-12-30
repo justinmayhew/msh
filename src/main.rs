@@ -131,6 +131,6 @@ fn print_usage_and_exit(opts: &Options, code: i32) -> ! {
 }
 
 fn print_error(e: &failure::Error) {
-    let causes: Vec<_> = e.iter_causes().map(ToString::to_string).collect();
-    display!("{}", causes.join(": "));
+    let chain: Vec<_> = e.iter_chain().map(ToString::to_string).collect();
+    display!("{}", chain.join(": "));
 }
