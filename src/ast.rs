@@ -1,5 +1,5 @@
-use command::Command;
-use word::Word;
+use crate::command::Command;
+use crate::word::Word;
 
 pub type Program = Block;
 pub type Block = Vec<Stmt>;

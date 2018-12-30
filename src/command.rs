@@ -2,11 +2,11 @@ use std::borrow::Cow;
 use std::ffi::{CString, OsStr};
 use std::os::unix::ffi::OsStrExt;
 
-use Result;
-use ast::NameValuePair;
-use environment::Environment;
-use redirect::Redirect;
-use word::Word;
+use crate::ast::NameValuePair;
+use crate::environment::Environment;
+use crate::redirect::Redirect;
+use crate::word::Word;
+use crate::Result;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Command {
@@ -105,7 +105,8 @@ impl<'a> ExpandedCommand<'a> {
     pub fn into_execv(mut self, environment: &Environment) -> Execv<'a> {
         self.arguments.insert(0, self.name.clone());
 
-        let arguments = self.arguments
+        let arguments = self
+            .arguments
             .iter()
             .map(|argument| CString::new(argument.clone().as_bytes()).unwrap())
             .collect();

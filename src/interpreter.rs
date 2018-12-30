@@ -9,19 +9,19 @@ use std::process;
 
 use failure::ResultExt;
 use libc;
-use nix::Error::Sys;
 use nix::errno::Errno;
 use nix::sys::signal::{self, SaFlags, SigAction, SigHandler, SigSet, SigmaskHow, Signal};
 use nix::sys::wait::{self, WaitPidFlag, WaitStatus};
 use nix::unistd::{self, ForkResult, Pid};
+use nix::Error::Sys;
 
-use ast::Stmt;
-use command::{Command, Execv, ExpandedCommand};
-use cwd::Cwd;
-use environment::Environment;
-use redirect::Redirect;
-use status::Status;
-use {print_error, Result};
+use crate::ast::Stmt;
+use crate::command::{Command, Execv, ExpandedCommand};
+use crate::cwd::Cwd;
+use crate::environment::Environment;
+use crate::redirect::Redirect;
+use crate::status::Status;
+use crate::{print_error, Result};
 
 extern "C" fn nothing(_: libc::c_int) {}
 
@@ -59,15 +59,21 @@ impl Interpreter {
                         self.execute(alternate)?;
                     }
                 }
-                Stmt::While(ref stmt) => while self.execute_command(&stmt.test)?.is_success() {
-                    self.execute(&stmt.body)?;
-                },
-                Stmt::Export(ref exportables) => for exportable in exportables {
-                    self.env.export(exportable)?;
-                },
-                Stmt::Assignment(ref pairs) => for pair in pairs {
-                    self.env.assign(pair)?;
-                },
+                Stmt::While(ref stmt) => {
+                    while self.execute_command(&stmt.test)?.is_success() {
+                        self.execute(&stmt.body)?;
+                    }
+                }
+                Stmt::Export(ref exportables) => {
+                    for exportable in exportables {
+                        self.env.export(exportable)?;
+                    }
+                }
+                Stmt::Assignment(ref pairs) => {
+                    for pair in pairs {
+                        self.env.assign(pair)?;
+                    }
+                }
                 Stmt::Command(ref command) => {
                     self.execute_command(command)?;
                 }
@@ -98,7 +104,8 @@ impl Interpreter {
                 }
 
                 let code = match command.arguments().first() {
-                    Some(arg) => arg.to_str()
+                    Some(arg) => arg
+                        .to_str()
                         .and_then(|s| s.parse().ok())
                         .unwrap_or_else(|| {
                             display!("exit: numeric argument required");
@@ -221,7 +228,8 @@ fn execute_child(
     for redirect in cmd.redirects() {
         match *redirect {
             Redirect::InFile(ref path) => {
-                let file = File::open(path).with_context(|_| path.to_string_lossy().into_owned())?;
+                let file =
+                    File::open(path).with_context(|_| path.to_string_lossy().into_owned())?;
                 unistd::dup2(file.as_raw_fd(), libc::STDIN_FILENO)?;
             }
             Redirect::OutErr => {
@@ -243,11 +251,13 @@ fn execute_child(
 
     match cmd.clone().into_execv(environment) {
         Execv::Exact(path, argv, env) => execve(&path, &argv, &env),
-        Execv::Relative(name, argv, env) => for mut path in env::split_paths(environment.path()) {
-            path.push(&name);
-            let path = CString::new(path.into_os_string().into_vec()).unwrap();
-            execve(&path, &argv, &env);
-        },
+        Execv::Relative(name, argv, env) => {
+            for mut path in env::split_paths(environment.path()) {
+                path.push(&name);
+                let path = CString::new(path.into_os_string().into_vec()).unwrap();
+                execve(&path, &argv, &env);
+            }
+        }
     }
 
     display!("command not found: {}", cmd.name().to_string_lossy());

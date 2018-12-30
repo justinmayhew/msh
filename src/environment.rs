@@ -1,11 +1,11 @@
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
-use std::collections::hash_map::{Entry, Iter};
 use std::env;
 use std::ffi::{OsStr, OsString};
 use std::path::Path;
 
-use Result;
-use ast::{Exportable, NameValuePair};
+use crate::ast::{Exportable, NameValuePair};
+use crate::Result;
 
 pub struct Environment {
     values: HashMap<OsString, Var>,
@@ -61,10 +61,11 @@ impl Environment {
         }
     }
 
-    pub fn iter_exported(&self) -> IterExported {
-        IterExported {
-            iter: self.values.iter(),
-        }
+    pub fn iter_exported(&self) -> impl Iterator<Item = (&OsStr, &OsStr)> {
+        self.values
+            .iter()
+            .filter(|(_, var)| var.is_exported)
+            .map(|(name, var)| (name.as_os_str(), var.value.as_os_str()))
     }
 }
 
@@ -76,22 +77,5 @@ struct Var {
 impl Var {
     fn new(value: OsString, is_exported: bool) -> Self {
         Self { value, is_exported }
-    }
-}
-
-pub struct IterExported<'env> {
-    iter: Iter<'env, OsString, Var>,
-}
-
-impl<'env> Iterator for IterExported<'env> {
-    type Item = (&'env OsStr, &'env OsStr);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        while let Some((name, var)) = self.iter.next() {
-            if var.is_exported {
-                return Some((name, &var.value));
-            }
-        }
-        None
     }
 }

@@ -7,9 +7,9 @@ use std::slice::Iter;
 
 use libc;
 
-use Result;
-use ast::NameValuePair;
-use environment::Environment;
+use crate::ast::NameValuePair;
+use crate::environment::Environment;
+use crate::Result;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Word {
@@ -287,7 +287,8 @@ impl<'a> EnvExpander<'a> {
 }
 
 fn is_valid_name(input: &[u8]) -> bool {
-    !input.is_empty() && is_valid_first_byte(input[0])
+    !input.is_empty()
+        && is_valid_first_byte(input[0])
         && input[1..].iter().cloned().all(is_valid_name_byte)
 }
 
@@ -320,10 +321,10 @@ fn parse_quoted_word(value: &[u8]) -> Option<Word> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::environment::Environment;
     use std::env;
     use std::path::Path;
-    use super::*;
-    use environment::Environment;
 
     fn home() -> OsString {
         env::var_os("HOME").unwrap()

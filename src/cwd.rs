@@ -5,7 +5,7 @@ use std::mem;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
 
-use status::Status;
+use crate::status::Status;
 
 pub struct Cwd {
     path: PathBuf,

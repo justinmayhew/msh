@@ -1,9 +1,9 @@
 use std::fmt;
 use std::slice::Iter;
 
-use Result;
-use word::{Quote, Word};
-use redirect::{Redirect, WriteMode};
+use crate::redirect::{Redirect, WriteMode};
+use crate::word::{Quote, Word};
+use crate::Result;
 
 pub struct Lexer<'input> {
     src: Iter<'input, u8>,
@@ -337,8 +337,8 @@ enum Stream {
 }
 
 impl Stream {
-    fn is_writable(&self) -> bool {
-        match *self {
+    fn is_writable(self) -> bool {
+        match self {
             Stream::Stdin => false,
             Stream::Stdout | Stream::Stderr => true,
         }

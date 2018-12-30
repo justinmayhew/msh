@@ -2,6 +2,7 @@
 name = "msh"
 version = "0.1.0"
 authors = ["Justin Mayhew <mayhew@live.ca>"]
+edition = "2018"
 
 [dependencies]
 atty = "0.2"

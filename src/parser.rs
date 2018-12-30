@@ -1,8 +1,8 @@
-use Result;
-use ast::{Block, Exportable, IfStmt, Program, Stmt, WhileStmt};
-use command::Command;
-use lexer::{Kind, Lexer, Token};
-use word::Word;
+use crate::ast::{Block, Exportable, IfStmt, Program, Stmt, WhileStmt};
+use crate::command::Command;
+use crate::lexer::{Kind, Lexer, Token};
+use crate::word::Word;
+use crate::Result;
 
 pub fn parse(input: &[u8]) -> Result<Program> {
     Parser::new(input).parse()
@@ -14,13 +14,13 @@ struct Parser<'input> {
 }
 
 macro_rules! expected {
-    ($expected:expr, $found:expr) => ({
+    ($expected:expr, $found:expr) => {{
         let found = match $found {
             Some(token) => format!("{} on line {}", token.kind, token.line),
             None => "EOF".to_string(),
         };
         bail!("expected {}, found {}", $expected, found);
-    });
+    }};
 }
 
 impl<'input> Parser<'input> {
@@ -49,24 +49,28 @@ impl<'input> Parser<'input> {
 
     fn match_token(&mut self, expected: &Kind) -> Result<bool> {
         match self.next_token()? {
-            Some(next) => if next.kind == *expected {
-                Ok(true)
-            } else {
-                self.push_token(next);
-                Ok(false)
-            },
+            Some(next) => {
+                if next.kind == *expected {
+                    Ok(true)
+                } else {
+                    self.push_token(next);
+                    Ok(false)
+                }
+            }
             None => Ok(false),
         }
     }
 
     fn match_word(&mut self) -> Result<Option<Word>> {
         match self.next_token()? {
-            Some(next) => if let Kind::Word(word) = next.kind {
-                Ok(Some(word))
-            } else {
-                self.push_token(next);
-                Ok(None)
-            },
+            Some(next) => {
+                if let Kind::Word(word) = next.kind {
+                    Ok(Some(word))
+                } else {
+                    self.push_token(next);
+                    Ok(None)
+                }
+            }
             None => Ok(None),
         }
     }
@@ -218,7 +222,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ast::NameValuePair;
+    use crate::ast::NameValuePair;
 
     #[test]
     fn simple() {
@@ -237,12 +241,10 @@ mod tests {
     fn arguments() {
         assert_eq!(
             parse(b"cat /etc/hosts /etc/passwd\n").unwrap(),
-            vec![
-                Stmt::Command(Command::new(
-                    "cat".into(),
-                    vec!["/etc/hosts".into(), "/etc/passwd".into()],
-                )),
-            ],
+            vec![Stmt::Command(Command::new(
+                "cat".into(),
+                vec!["/etc/hosts".into(), "/etc/passwd".into()],
+            ))],
         );
     }
 
@@ -250,12 +252,10 @@ mod tests {
     fn ignores_consecutive_spaces() {
         assert_eq!(
             parse(b"/bin/echo 1  2   3\n").unwrap(),
-            vec![
-                Stmt::Command(Command::new(
-                    "/bin/echo".into(),
-                    vec!["1".into(), "2".into(), "3".into()],
-                )),
-            ],
+            vec![Stmt::Command(Command::new(
+                "/bin/echo".into(),
+                vec!["1".into(), "2".into(), "3".into()],
+            ))],
         );
     }
 
@@ -283,21 +283,20 @@ mod tests {
     fn assignment() {
         assert_eq!(
             parse(b"FOO=bar one=ONE").unwrap(),
-            vec![
-                Stmt::Assignment(vec![
-                    NameValuePair::new(Word::unquoted("FOO"), Word::unquoted("bar")),
-                    NameValuePair::new(Word::unquoted("one"), Word::unquoted("ONE")),
-                ]),
-            ],
+            vec![Stmt::Assignment(vec![
+                NameValuePair::new(Word::unquoted("FOO"), Word::unquoted("bar")),
+                NameValuePair::new(Word::unquoted("one"), Word::unquoted("ONE")),
+            ])],
         );
     }
 
     #[test]
     fn command_with_assignment() {
         let mut command = Command::new("./server".into(), vec!["--http".into()]);
-        command.set_env(vec![
-            NameValuePair::new(Word::unquoted("PORT"), Word::unquoted("8000")),
-        ]);
+        command.set_env(vec![NameValuePair::new(
+            Word::unquoted("PORT"),
+            Word::unquoted("8000"),
+        )]);
         assert_eq!(
             parse(b"PORT=8000 ./server --http").unwrap(),
             vec![Stmt::Command(command)]
@@ -308,15 +307,14 @@ mod tests {
     fn if_stmt() {
         assert_eq!(
             parse(b"if true { echo truthy }\n").unwrap(),
-            vec![
-                Stmt::If(IfStmt::new(
-                    Command::from_name("true".into()),
-                    vec![
-                        Stmt::Command(Command::new("echo".into(), vec!["truthy".into()])),
-                    ],
-                    None,
-                )),
-            ],
+            vec![Stmt::If(IfStmt::new(
+                Command::from_name("true".into()),
+                vec![Stmt::Command(Command::new(
+                    "echo".into(),
+                    vec!["truthy".into()]
+                ))],
+                None,
+            ))],
         );
     }
 
@@ -337,29 +335,26 @@ if /bin/a {
 "#;
         assert_eq!(
             parse(src).unwrap(),
-            vec![
-                Stmt::If(IfStmt::new(
-                    Command::from_name("/bin/a".into()),
-                    vec![Stmt::Command(Command::new("echo".into(), vec!["a".into()]))],
-                    Some(vec![
+            vec![Stmt::If(IfStmt::new(
+                Command::from_name("/bin/a".into()),
+                vec![Stmt::Command(Command::new("echo".into(), vec!["a".into()]))],
+                Some(vec![Stmt::If(IfStmt::new(
+                    Command::from_name("/bin/b".into()),
+                    vec![
+                        Stmt::Command(Command::new("echo".into(), vec!["b".into()])),
+                        Stmt::Command(Command::new("echo".into(), vec!["2".into()])),
                         Stmt::If(IfStmt::new(
-                            Command::from_name("/bin/b".into()),
-                            vec![
-                                Stmt::Command(Command::new("echo".into(), vec!["b".into()])),
-                                Stmt::Command(Command::new("echo".into(), vec!["2".into()])),
-                                Stmt::If(IfStmt::new(
-                                    Command::from_name("true".into()),
-                                    vec![Stmt::Command(Command::from_name("exit".into()))],
-                                    None,
-                                )),
-                            ],
-                            Some(vec![
-                                Stmt::Command(Command::new("echo".into(), vec!["c".into()])),
-                            ]),
+                            Command::from_name("true".into()),
+                            vec![Stmt::Command(Command::from_name("exit".into()))],
+                            None,
                         )),
-                    ]),
-                )),
-            ],
+                    ],
+                    Some(vec![Stmt::Command(Command::new(
+                        "echo".into(),
+                        vec!["c".into()]
+                    ))]),
+                ))]),
+            ))],
         );
     }
 

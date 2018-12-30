@@ -6,7 +6,7 @@ use std::os::unix::ffi::OsStrExt;
 
 use libc::{self, c_char, c_int, c_void};
 
-use Result;
+use crate::Result;
 
 pub struct History {
     path: CString,
@@ -14,6 +14,7 @@ pub struct History {
 
 impl History {
     pub fn new() -> Result<Self> {
+        #[allow(deprecated)]
         let history_path = env::home_dir().expect("HOME required").join(concat!(
             ".",
             env!("CARGO_PKG_NAME"),

@@ -4,8 +4,8 @@ use std::path::Path;
 
 use failure::ResultExt;
 
-use Result;
-use word::Word;
+use crate::word::Word;
+use crate::Result;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Redirect<P> {
@@ -35,11 +35,11 @@ pub enum WriteMode {
 }
 
 impl WriteMode {
-    pub fn open<P: AsRef<Path>>(&self, path: P) -> Result<File> {
+    pub fn open<P: AsRef<Path>>(self, path: P) -> Result<File> {
         let mut file = OpenOptions::new();
         file.write(true).create(true);
 
-        match *self {
+        match self {
             WriteMode::Truncate => {
                 file.truncate(true);
             }
@@ -49,7 +49,8 @@ impl WriteMode {
         }
 
         let path = path.as_ref();
-        Ok(file.open(path)
+        Ok(file
+            .open(path)
             .with_context(|_| path.display().to_string())?)
     }
 }

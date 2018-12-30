@@ -1,12 +1,7 @@
-extern crate atty;
-extern crate env_logger;
 #[macro_use]
 extern crate failure;
-extern crate getopts;
-extern crate libc;
 #[macro_use]
 extern crate log;
-extern crate nix;
 
 macro_rules! display {
     ($fmt:expr) => (eprintln!(concat!(env!("CARGO_PKG_NAME"), ": ", $fmt)));
@@ -36,8 +31,8 @@ use env_logger::Builder;
 use failure::ResultExt;
 use getopts::Options;
 
-use history::History;
-use interpreter::Interpreter;
+use crate::history::History;
+use crate::interpreter::Interpreter;
 
 type Result<T> = result::Result<T, failure::Error>;
 
@@ -82,11 +77,13 @@ fn run() -> Result<()> {
     }
 
     match matches.free.len() {
-        0 => if atty::is(Stream::Stdin) {
-            repl()
-        } else {
-            execute(io::stdin())
-        },
+        0 => {
+            if atty::is(Stream::Stdin) {
+                repl()
+            } else {
+                execute(io::stdin())
+            }
+        }
         1 => {
             let path = matches.free[0].clone();
             if path == "-" {
